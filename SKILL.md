@@ -165,7 +165,40 @@ python3 {baseDir}/scripts/medeo_video.py compose-status --chat-session-id "csess
 
 ---
 
-## 9. 环境变量
+## 9. 飞书发送视频（而非纯链接）
+
+视频生成完成后，如果运行在飞书环境，应该直接发视频文件给用户，而不是只发一个链接。
+
+**发送脚本：**
+```bash
+python3 {baseDir}/scripts/feishu_send_video.py \
+  --video /tmp/video.mp4 \
+  --to "ou_用户open_id" \
+  --cover-url "https://缩略图URL" \
+  --duration 20875
+```
+
+**参数说明：**
+| 参数 | 必须 | 说明 |
+|------|------|------|
+| `--video` | 是 | 本地视频文件路径 |
+| `--to` | 是 | 接收人 open_id（ou_xxx）或群 chat_id（oc_xxx） |
+| `--cover` / `--cover-url` | 否 | 封面图本地路径或 URL（不传则无预览封面） |
+| `--duration` | 否 | 视频时长（毫秒），不传则显示 00:00 |
+
+**完整流程（生成完成后）：**
+1. 从生成结果拿到 `video_url` 和 `thumbnail_url`
+2. 下载视频到本地：`curl -o /tmp/video.mp4 <video_url>`
+3. 调用脚本发送：带上 `--cover-url <thumbnail_url>` 和 `--duration <duration_ms>`
+
+**技术细节：**
+- 飞书发视频用 `msg_type: "media"`（不是 "video" 也不是 "file"）
+- 上传视频时 `file_type` 用 `"mp4"`，需要带 `duration`（毫秒）
+- 封面图通过 `im/v1/images` 上传拿 `image_key`
+
+---
+
+## 10. 环境变量
 
 | 变量 | 必须 | 说明 |
 |------|------|------|
@@ -173,7 +206,7 @@ python3 {baseDir}/scripts/medeo_video.py compose-status --chat-session-id "csess
 
 ---
 
-## 10. 数据存储
+## 11. 数据存储
 
 所有数据在 `~/.openclaw/workspace/medeo-video/`：
 
