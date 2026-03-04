@@ -184,6 +184,7 @@ python3 {baseDir}/scripts/medeo_video.py compose-status --chat-session-id "csess
 - If the user provides image/video links, use `--media-urls`
 - After generation, send the video directly — don't be verbose about it
 - If the user asks about progress, use `last-job` to check status
+- **When sending video via Feishu, ALWAYS include a cover image** — without it the video shows as a blank/black thumbnail. Use `feishu_send_video.py` with `--cover-url` (from Medeo thumbnail) or extract the first frame with ffmpeg. Never skip this step.
 
 ---
 
