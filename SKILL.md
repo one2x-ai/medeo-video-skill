@@ -7,9 +7,9 @@ metadata: {"openclaw":{"emoji":"🎬","requires":{"bins":["python3"],"env":{"MED
 
 # Medeo Video Generator Skill
 
-Generate AI videos from text descriptions. Medeo is an **AI video agent** that handles full storylines, multi-scene narratives, and screenplays in a single call.
+Generate AI videos from text descriptions. Medeo is an **AI video agent** — it handles full storylines, multi-scene narratives, and screenplays in a single call. Just describe what you want and Medeo handles shot composition, transitions, pacing, and music automatically.
 
-Just describe what you want — from a one-liner to a full screenplay — and Medeo handles shot composition, transitions, pacing, and music automatically.
+> ⚠️ **Do NOT split stories into multiple calls.** Pass the entire screenplay/storyline in one `--message`. Medeo decomposes it into shots internally.
 
 ---
 
@@ -26,66 +26,128 @@ If no API Key is configured, the script outputs `"setup_required": true` with a 
 
 > ⚠️ **Takes 5-30 minutes. Always use async flow (sessions_spawn).**
 
+### Step 1: Build the task
+
 ```bash
-# Step 1: Build the task
 python3 {baseDir}/scripts/medeo_video.py spawn-task \
-  --message "your video description or screenplay"
+  --message "your video description or full screenplay"
 ```
 
 Optional flags:
-- `--media-urls "URL1" "URL2"` — input images/videos (see [docs/assets-upload.md](docs/assets-upload.md))
-- `--recipe-id "recipe_01..."` — use a template (see [docs/recipes.md](docs/recipes.md))
-- `--aspect-ratio "9:16"` — vertical video (default: 16:9)
-- `--duration-ms 30000` — target duration in ms
 
-```
-# Step 2: Spawn the async task
-sessions_spawn with the returned args (label: "medeo: ...", runTimeoutSeconds: 2400)
+| Flag | Description |
+|------|-------------|
+| `--media-urls "URL1" "URL2"` | Input images/videos as reference material |
+| `--recipe-id "recipe_01..."` | Use a pre-built template (see Section 4) |
+| `--aspect-ratio "9:16"` | Vertical video (default: 16:9) |
+| `--duration-ms 30000` | Target duration in milliseconds |
 
-# Step 3: Tell the user it's being generated (5-10 min)
-```
+### Step 2: Spawn the async task
 
-The sub-agent auto-announces the result when done.
+Use `sessions_spawn` with the returned args. Set `label: "medeo: <brief>"` and `runTimeoutSeconds: 2400`.
+
+### Step 3: Notify the user
+
+Tell them it's generating (typically 5-10 min). The sub-agent auto-announces the result when done.
 
 ---
 
-## 3. Quick Commands (No spawn needed)
+## 3. Upload Assets (Images & Videos)
+
+Pass image/video URLs directly with `--media-urls` during generation:
+
+```bash
+python3 {baseDir}/scripts/medeo_video.py spawn-task \
+  --message "Create a product showcase video for this sneaker" \
+  --media-urls "https://example.com/front.jpg" "https://example.com/side.jpg"
+```
+
+Or upload separately to get an asset reference:
+
+```bash
+python3 {baseDir}/scripts/medeo_video.py upload --url "https://example.com/photo.jpg"
+```
+
+Supports: `.jpg`, `.png`, `.webp`, `.mp4`, `.mov`, `.gif`. Multiple URLs are space-separated.
+
+> **Tip:** Higher resolution images and multiple angles produce better results. Full details: [docs/assets-upload.md](docs/assets-upload.md)
+
+---
+
+## 4. Browse Recipes (Templates)
+
+```bash
+python3 {baseDir}/scripts/medeo_video.py recipes
+python3 {baseDir}/scripts/medeo_video.py recipes --cursor <cursor_value>
+```
+
+Use a recipe in generation:
+
+```bash
+python3 {baseDir}/scripts/medeo_video.py spawn-task \
+  --message "your description" \
+  --recipe-id "recipe_01..."
+```
+
+Full details: [docs/recipes.md](docs/recipes.md)
+
+---
+
+## 5. Quick Commands (No spawn needed)
 
 | Command | What it does |
 |---------|-------------|
-| `recipes` | List video templates → [docs/recipes.md](docs/recipes.md) |
-| `upload --url "URL"` | Upload image/video asset → [docs/assets-upload.md](docs/assets-upload.md) |
+| `recipes` | List video templates |
+| `upload --url "URL"` | Upload image/video asset |
 | `last-job` | Check latest job status |
 | `history` | View job history |
+| `config` | Show current configuration |
 
 ---
 
-## 4. Send Video via Feishu
+## 6. Send Video via Feishu
 
-After generation, send the video directly to the user instead of a link.
+After generation, send the actual video file instead of just a link:
 
 ```bash
 python3 {baseDir}/scripts/feishu_send_video.py \
-  --video /tmp/video.mp4 --to "ou_xxx" \
-  --cover-url "https://thumb.jpg" --duration 20875
+  --video /tmp/video.mp4 \
+  --to "ou_xxx_or_oc_xxx" \
+  --cover-url "https://thumbnail_url" \
+  --duration 20875
 ```
 
-**Always include cover image and duration.** Full details: [docs/feishu-send.md](docs/feishu-send.md)
+For rich text (video + description):
+
+```bash
+python3 {baseDir}/scripts/feishu_send_video.py \
+  --video /tmp/video.mp4 --to "oc_xxx" \
+  --cover-url "https://thumb.jpg" --duration 20875 \
+  --title "My Video" --text "Description here"
+```
+
+### Important rules:
+- **ALWAYS include a cover image** (`--cover-url` or `--cover`). Without it, the video shows a blank/black thumbnail.
+- **Duration is in milliseconds.** Omitting it shows 00:00 in the player.
+- **File size limit ~25MB.** Compress large videos: `ffmpeg -i input.mp4 -c:v libx264 -crf 28 -preset fast -c:a aac -b:a 128k output.mp4`
+- If no thumbnail URL available, extract first frame: `ffmpeg -i video.mp4 -vframes 1 -q:v 2 cover.jpg -y`
+
+Full details: [docs/feishu-send.md](docs/feishu-send.md)
 
 ---
 
-## 5. Key Rules for the Agent
+## 7. Key Rules for the Agent
 
-1. **Always async** — use spawn-task + sessions_spawn for generation
-2. **One call for stories** — pass full storylines in one `--message`, don't split into multiple calls
+1. **Always async** — use `spawn-task` + `sessions_spawn` for generation
+2. **One call for stories** — pass full storylines in one `--message`, never split
 3. **Cover image mandatory** — Feishu videos without cover show blank thumbnails
-4. **Images/videos as input** — use `--media-urls` to pass reference photos, product images, or video clips
+4. **Images/videos as input** — use `--media-urls` for reference photos, product images, or video clips
 5. **Insufficient credits** — tell user to recharge, include the link from error output
 6. **Large files (>25MB)** — compress with ffmpeg before sending via Feishu
 
 ---
 
-## 6. Error Handling
+## 8. Error Handling
 
 | Error | Action |
 |-------|--------|
@@ -96,7 +158,7 @@ python3 {baseDir}/scripts/feishu_send_video.py \
 
 ---
 
-## 7. Reference Docs
+## 9. Reference Docs
 
 | Doc | Topic |
 |-----|-------|
@@ -106,7 +168,7 @@ python3 {baseDir}/scripts/feishu_send_video.py \
 
 ---
 
-## 8. Data Storage
+## 10. Data Storage
 
 All data in `~/.openclaw/workspace/medeo-video/`:
 
