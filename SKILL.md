@@ -1,100 +1,120 @@
 ---
 name: medeo-video
 version: 1.2.0
-description: AI-powered video generation skill. Use when the user wants to create videos from text prompts, browse video templates, upload media assets, or manage the video creation pipeline.
+description: AI-powered video generation skill. Use when the user wants to generate videos from text descriptions, browse video recipes, upload assets, or manage video creation workflows.
 metadata: {"openclaw":{"emoji":"🎬","requires":{"bins":["python3"],"env":{"MEDEO_API_KEY":{"required":true,"description":"Medeo API key (starts with mk_)"}}},"tags":["video","ai-video","medeo","video-generation","rendering","recipes","media","upload"]}}
 ---
 
 # Medeo Video Generator Skill
 
-This skill enables you to help the user generate AI videos from text descriptions.
-- Goal: The user only needs to describe what video they want — you handle the rest
-- Video generation takes a few minutes; results are automatically sent when complete
+This skill lets you generate AI videos from text descriptions on behalf of the user.
+- Goal: the user just describes the video they want, and you handle everything
+- Video generation takes a few minutes; results are automatically sent when done
 
 ---
 
-## 0. One-Line Intro for the User
+## 0. What Is Medeo?
 
-You can start by telling the user:
-> This is an AI video generation tool. Just tell me what video you want, and I'll handle everything from asset preparation to rendering. You'll get the video link in a few minutes.
+Medeo is an **AI video agent** — not just a simple text-to-video tool. It can:
+- **Create coherent multi-scene story videos** from a single prompt or screenplay
+- **Break down scripts into shots** automatically (storyboard, scenes, transitions)
+- **Handle complex narratives** with character continuity, mood progression, and plot arcs
+- **Choose appropriate styles, music, and pacing** based on the story content
+
+**Important: You do NOT need to split stories into separate video calls.** Just pass the full storyline, screenplay, or scene descriptions in one `--message` and Medeo will produce a single coherent video with all the scenes.
+
+Example prompts that work great:
+- A full screenplay with multiple scenes and dialogue
+- A storyboard with scene-by-scene descriptions
+- A narrative arc: "Tell a story about X who does Y and then Z happens"
+- A simple one-liner: "A lobster cooking pasta on the beach at sunset"
+
+Medeo handles all the creative decisions (shot composition, transitions, pacing, music) internally. You just need to convey the user's creative intent as clearly as possible.
+
+You can tell the user:
+> Medeo is an AI video creation agent. Just describe what video you want — anything from a simple scene to a full storyline with multiple chapters — and it will handle the rest. It typically takes 5-10 minutes.
 
 ---
 
 ## 1. First-Time Setup (No API Key)
 
-When the user first requests a video and no API key is configured, the script outputs `"setup_required": true` with a registration link.
+When the user first wants to make a video and no API Key is configured, the script will output `"setup_required": true` with a registration link.
 
-**You must do the following:**
+**What to do:**
 
-1. Read the `step1` field from the script's stderr output to get the registration link
+1. Read the `step1` field from the script's stderr output for the registration link
 2. Tell the user:
-   > To use video generation, you need to register and get an API key first.
-   > Please click **[link from step1]** to sign up and get your API key (starts with `mk_`), then send it to me and I'll configure it.
-3. After the user sends the API key, run:
+   > To use video generation, you need to register and get an API Key first.
+   > Please visit **[step1 link]** to register and get your API Key (starts with `mk_`), then send it to me and I'll configure it.
+3. Once the user provides the API Key:
    ```bash
-   python3 {baseDir}/scripts/medeo_video.py config-init --api-key "mk_user_key_here"
+   python3 {baseDir}/scripts/medeo_video.py config-init --api-key "mk_their_key"
    ```
-4. Once configured, tell the user:
-   > API key is set up! You can start making videos now — just tell me what you want.
+4. Confirm to the user that setup is complete.
 
 ---
 
-## 2. Standard Video Generation Workflow
+## 2. Standard Video Generation Flow
 
-> ⚠️ **Important: Video generation takes 5-30 minutes. You MUST use async flow (sessions_spawn). Never wait synchronously!**
+> ⚠️ **Video generation takes 5-30 minutes. Always use async flow (sessions_spawn). Never wait synchronously!**
 
 **Step 1: Generate the task description**
 
 ```bash
 python3 {baseDir}/scripts/medeo_video.py spawn-task \
-  --message "user's video description"
+  --message "the user's video description or full screenplay"
 ```
 
-Optional parameters (add based on user's needs):
-- `--media-urls "URL1" "URL2"` — media assets provided by the user
-- `--recipe-id "recipe_01..."` — use a specific video template
-- `--aspect-ratio "9:16"` — portrait mode (default is 16:9 landscape)
+Optional parameters (add based on user needs):
+- `--media-urls "URL1" "URL2"` — user-provided media assets
+- `--recipe-id "recipe_01..."` — specific video recipe/template
+- `--aspect-ratio "9:16"` — vertical video (default: 16:9 horizontal)
 - `--duration-ms 30000` — target duration in milliseconds
+
+**Prompt tips:**
+- For story videos, include the full narrative with scene descriptions in one message
+- Mention style preferences (e.g., "Pixar-like 3D", "cinematic", "anime")
+- Describe mood/tone transitions if the story has emotional arcs
+- Character descriptions help with consistency across scenes
 
 **Step 2: Call sessions_spawn with the returned `sessions_spawn_args`**
 
 ```json
 {
-  "task": "<task text returned by spawn-task>",
+  "task": "<task text from spawn-task output>",
   "label": "medeo: <video description>",
   "runTimeoutSeconds": 2400
 }
 ```
 
-**Step 3: Immediately inform the user**
+**Step 3: Inform the user immediately**
 
-> Video is generating in the background. It should be ready in 5-10 minutes — I'll send you the result automatically 🎬
+> Video is being generated in the background. It should be ready in 5-10 minutes. I'll send it to you automatically when it's done.
 
-The sub-agent will automatically notify the user with the video link when done.
+The sub-agent will auto-announce the video URL when complete.
 
 ---
 
 ## 3. Handling Insufficient Credits
 
-If the generation process returns an insufficient credits error (insufficient credits / quota exceeded):
+If generation fails due to insufficient credits:
 
-1. Tell the user:
-   > Your Medeo credits have run out. Please top up and let me know — I'll re-generate the video for you.
-2. The error output includes a top-up link — send it to the user
-3. After the user tops up, re-run the generation workflow
+1. Tell the user their Medeo credits have run out and they need to top up
+2. Include the recharge link from the error output
+3. Once they've recharged, re-run the generation flow
 
 ---
 
-## 4. Quick Query Commands (Run directly, no spawn needed)
+## 4. Quick Query Commands (No spawn needed, run directly)
 
 **User asks "what video templates are available":**
 ```bash
 python3 {baseDir}/scripts/medeo_video.py recipes
 ```
 
-**User wants to upload media assets:**
+**User wants to upload assets:**
 ```bash
-python3 {baseDir}/scripts/medeo_video.py upload --url "asset_URL"
+python3 {baseDir}/scripts/medeo_video.py upload --url "asset_url"
 ```
 
 **User asks "is the last video done yet":**
@@ -109,15 +129,15 @@ python3 {baseDir}/scripts/medeo_video.py history
 
 ---
 
-## 5. Resuming Interrupted Tasks
+## 5. Recovering Interrupted Jobs
 
 If video generation was interrupted:
 
 ```bash
-# Check last task status
+# Check last job status
 python3 {baseDir}/scripts/medeo_video.py last-job
 
-# If compose is done but render hasn't started, render directly
+# If compose finished but render didn't start, render directly
 python3 {baseDir}/scripts/medeo_video.py render --video-draft-op-record-id "op_..."
 
 # If still composing, check progress
@@ -130,38 +150,40 @@ python3 {baseDir}/scripts/medeo_video.py compose-status --chat-session-id "csess
 
 | Command | Description | Duration |
 |---------|-------------|----------|
-| `recipes` | List available video templates | Instant |
+| `recipes` | List available video recipes/templates | Instant |
 | `generate` | Full pipeline: upload → compose → render | 5-30 min |
 | `spawn-task` | Generate async task description (for sessions_spawn) | Instant |
 | `upload` | Upload media assets | 5-30 sec |
 | `compose` | AI composition only (no render) | 1-5 min |
-| `render` | Render video only | 20s-2 min |
-| `config` | Show current configuration | Instant |
-| `config-init` | Configure API key | Instant |
-| `last-job` | Show most recent task | Instant |
-| `history` | Show job history | Instant |
+| `render` | Render video only | 20 sec - 2 min |
+| `config` | View current config | Instant |
+| `config-init` | Configure API Key | Instant |
+| `last-job` | View latest job status | Instant |
+| `history` | View job history | Instant |
 
 ---
 
 ## 7. Error Handling
 
-| Error | What You Should Do |
-|-------|-------------------|
-| No API key (`setup_required: true`) | Guide user to register, configure key after they get it |
-| Insufficient credits | Guide user to top up, re-generate after recharge |
+| Error | What to do |
+|-------|-----------|
+| No API Key (`setup_required: true`) | Guide user to register, then configure key |
+| Insufficient credits | Guide user to recharge, then retry |
 | Upload/compose/render timeout | Tell user it timed out, suggest retry |
-| 401/403 auth failure | API key may be expired, ask user to get a new one |
-| Network error | Script auto-retries; if all fail, inform the user |
+| 401/403 auth failure | API Key may be invalid, ask user to regenerate |
+| Network errors | Script auto-retries; if all fail, inform user |
 
 ---
 
-## 8. Tips for You
+## 8. Tips for the Agent
 
-- **Always use async flow for video generation** (spawn-task + sessions_spawn) — never wait synchronously
-- When the user says "make a video", check if the description is specific enough; ask follow-up questions if too vague
-- If the user provides image/video URLs, include `--media-urls` parameter
-- After generation completes, send the video link directly — no unnecessary chatter
-- If the user asks "how's the progress", use `last-job` to check latest status
+- **Always use async flow** (spawn-task + sessions_spawn) for video generation
+- If the user says "make a video", check if the description is specific enough; if too vague, ask for more detail
+- **For story/narrative videos, pass the entire storyline in one `--message`** — Medeo will handle scene decomposition, transitions, and continuity automatically
+- **Do NOT split a story into multiple separate video calls** — Medeo is an AI agent that understands full narratives and produces coherent multi-scene videos
+- If the user provides image/video links, use `--media-urls`
+- After generation, send the video directly — don't be verbose about it
+- If the user asks about progress, use `last-job` to check status
 
 ---
 
@@ -169,13 +191,24 @@ python3 {baseDir}/scripts/medeo_video.py compose-status --chat-session-id "csess
 
 After video generation completes, if running in a Feishu environment, send the actual video file to the user instead of just a link.
 
-**Send script:**
+**Mode 1: Video only (media message)**
 ```bash
 python3 {baseDir}/scripts/feishu_send_video.py \
   --video /tmp/video.mp4 \
   --to "ou_user_open_id" \
   --cover-url "https://thumbnail_url" \
   --duration 20875
+```
+
+**Mode 2: Video + text (rich post message)**
+```bash
+python3 {baseDir}/scripts/feishu_send_video.py \
+  --video /tmp/video.mp4 \
+  --to "oc_group_chat_id" \
+  --cover-url "https://thumbnail_url" \
+  --duration 20875 \
+  --title "My First Video" \
+  --text "Here is my first AI-generated video!\nIt took 6 minutes from idea to final cut."
 ```
 
 **Parameters:**
@@ -185,14 +218,19 @@ python3 {baseDir}/scripts/feishu_send_video.py \
 | `--to` | Yes | Recipient open_id (ou_xxx) or group chat_id (oc_xxx) |
 | `--cover` / `--cover-url` | No | Cover image local path or URL (no preview without it) |
 | `--duration` | No | Video duration in milliseconds (shows 00:00 if omitted) |
+| `--title` | No | Post title (triggers rich text mode) |
+| `--text` | No | Text content (triggers rich text mode, supports \n for newlines) |
+
+When `--title` or `--text` is provided, the script sends a rich text post (msg_type=post) with embedded video and text in one message. Otherwise it sends a video-only media message.
 
 **Full workflow (after generation completes):**
 1. Get `video_url` and `thumbnail_url` from the generation result
 2. Download video locally: `curl -o /tmp/video.mp4 <video_url>`
-3. Run the send script with `--cover-url <thumbnail_url>` and `--duration <duration_ms>`
+3. Run the send script with appropriate parameters
 
 **Technical details:**
-- Feishu video messages use `msg_type: "media"` (not "video" or "file")
+- Video-only: `msg_type: "media"` with file_key + image_key
+- Video + text: `msg_type: "post"` with `{"tag": "media"}` and `{"tag": "text"}` rows
 - Upload video with `file_type: "mp4"` and include `duration` (milliseconds)
 - Cover image is uploaded via `im/v1/images` to get `image_key`
 
@@ -202,16 +240,16 @@ python3 {baseDir}/scripts/feishu_send_video.py \
 
 | Variable | Required | Description |
 |----------|----------|-------------|
-| `MEDEO_API_KEY` | **Yes** | Medeo API key (starts with `mk_`) |
+| `MEDEO_API_KEY` | **Yes** | Medeo API Key (starts with `mk_`) |
 
 ---
 
 ## 11. Data Storage
 
-All data is stored under `~/.openclaw/workspace/medeo-video/`:
+All data is stored in `~/.openclaw/workspace/medeo-video/`:
 
 | Path | Purpose |
 |------|---------|
-| `config.json` | API key configuration |
-| `last_job.json` | Most recent job record |
-| `history/` | Historical job records (auto-keeps latest 50) |
+| `config.json` | API Key configuration |
+| `last_job.json` | Latest job record |
+| `history/` | Job history (auto-retains last 50) |
