@@ -71,33 +71,13 @@ Use in generation: `--recipe-id "recipe_01..."`. See [docs/recipes.md](docs/reci
 | `history` | Job history |
 | `config` | Current configuration |
 
-## 6. Send Video via Feishu
-
-```bash
-python3 {baseDir}/scripts/feishu_send_video.py \
-  --video /tmp/video.mp4 --to "ou_xxx_or_oc_xxx" \
-  --cover-url "https://thumbnail_url" --duration 20875
-```
-
-Add `--title "Title" --text "Description"` for rich text mode (video + text in one message).
-
-**Rules:**
-- **ALWAYS include cover image** — without it, video shows blank/black thumbnail
-- **Duration in milliseconds** — omitting shows 00:00
-- **Max ~25MB** — compress: `ffmpeg -i in.mp4 -c:v libx264 -crf 28 -preset fast -c:a aac -b:a 128k out.mp4`
-- No thumbnail? Extract first frame: `ffmpeg -i video.mp4 -vframes 1 -q:v 2 cover.jpg -y`
-
-See [docs/feishu-send.md](docs/feishu-send.md).
-
-## 7. Key Rules
+## 6. Key Rules
 
 1. **Always async** — `spawn-task` + `sessions_spawn` for generation
 2. **One call for stories** — full storylines in one `--message`, never split
-3. **Cover image mandatory** — blank thumbnails without it
-4. **Insufficient credits** — share recharge link from error output
-5. **Large files** — compress with ffmpeg before Feishu send
+3. **Insufficient credits** — share recharge link from error output
 
-## 8. Error Handling
+## 7. Error Handling
 
 | Error | Action |
 |-------|--------|
@@ -107,13 +87,12 @@ See [docs/feishu-send.md](docs/feishu-send.md).
 | 401/403 | Key may be invalid or expired, ask user to regenerate |
 | Upload 404 | Some image hosts block server-side fetch. Try a different URL source |
 
-## 9. Reference Docs
+## 8. Reference Docs
 
-For deeper details beyond what's covered above:
 - [docs/recipes.md](docs/recipes.md) — Full recipe browsing and pagination
 - [docs/assets-upload.md](docs/assets-upload.md) — All supported formats, upload workflows
-- [docs/feishu-send.md](docs/feishu-send.md) — Rich text mode, technical details, troubleshooting
+- [docs/feishu-send.md](docs/feishu-send.md) — Sending generated video via Feishu (cover image, duration, compression)
 
-## 10. Data Storage
+## 9. Data Storage
 
 All data in `~/.openclaw/workspace/medeo-video/`: `config.json` (API key), `last_job.json` (latest job), `history/` (last 50 jobs).
