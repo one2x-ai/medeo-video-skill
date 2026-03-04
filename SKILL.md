@@ -165,7 +165,40 @@ python3 {baseDir}/scripts/medeo_video.py compose-status --chat-session-id "csess
 
 ---
 
-## 9. 环境变量
+## 9. Send Video via Feishu (Instead of Links)
+
+After video generation completes, if running in a Feishu environment, send the actual video file to the user instead of just a link.
+
+**Send script:**
+```bash
+python3 {baseDir}/scripts/feishu_send_video.py \
+  --video /tmp/video.mp4 \
+  --to "ou_user_open_id" \
+  --cover-url "https://thumbnail_url" \
+  --duration 20875
+```
+
+**Parameters:**
+| Parameter | Required | Description |
+|-----------|----------|-------------|
+| `--video` | Yes | Local video file path |
+| `--to` | Yes | Recipient open_id (ou_xxx) or group chat_id (oc_xxx) |
+| `--cover` / `--cover-url` | No | Cover image local path or URL (no preview without it) |
+| `--duration` | No | Video duration in milliseconds (shows 00:00 if omitted) |
+
+**Full workflow (after generation completes):**
+1. Get `video_url` and `thumbnail_url` from the generation result
+2. Download video locally: `curl -o /tmp/video.mp4 <video_url>`
+3. Run the send script with `--cover-url <thumbnail_url>` and `--duration <duration_ms>`
+
+**Technical details:**
+- Feishu video messages use `msg_type: "media"` (not "video" or "file")
+- Upload video with `file_type: "mp4"` and include `duration` (milliseconds)
+- Cover image is uploaded via `im/v1/images` to get `image_key`
+
+---
+
+## 10. Environment Variables
 
 | 变量 | 必须 | 说明 |
 |------|------|------|
@@ -173,7 +206,7 @@ python3 {baseDir}/scripts/medeo_video.py compose-status --chat-session-id "csess
 
 ---
 
-## 10. 数据存储
+## 11. Data Storage
 
 所有数据在 `~/.openclaw/workspace/medeo-video/`：
 
