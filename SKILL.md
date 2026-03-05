@@ -77,6 +77,7 @@ Use in generation: `--recipe-id "recipe_01..."`. See [docs/recipes.md](docs/reci
 2. **One call for stories** — full storylines in one `--message`, never split
 3. **Insufficient credits** — share recharge link from error output
 4. **Feishu delivery** — if the user is on Feishu, send the actual video file using `scripts/feishu_send_video.py` (not just a URL link). See [docs/feishu-send.md](docs/feishu-send.md) for details. Always include a cover image and duration.
+5. **Timeline completion** — Medeo's backend is an AI agent. Generated images/videos must be added to the Timeline to trigger task completion and rendering. Always append to your prompt: "Add the generated video/image to the Timeline."
 
 ## 7. Error Handling
 
