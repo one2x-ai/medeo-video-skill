@@ -13,8 +13,8 @@ Generate AI videos from text. Medeo is an **AI video agent** that handles full s
 
 ## 1. First-Time Setup
 
-If no API Key is configured, the script outputs `"setup_required": true` with a registration link.
-1. Share the registration link with the user
+If no API Key is configured, the script outputs `"setup_required": true`.
+1. Send the user this exact link: https://medeo.app/dev/apikey (this page auto-prompts registration if not logged in, then shows the API key)
 2. Once they provide the key: `python3 {baseDir}/scripts/medeo_video.py config-init --api-key "mk_..."`
 
 ## 2. Generate a Video (5-30 min, always async)
