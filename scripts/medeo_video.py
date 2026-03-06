@@ -41,17 +41,9 @@ LAST_JOB_FILE = STATE_DIR / "last_job.json"
 HISTORY_DIR = STATE_DIR / "history"
 
 # Defaults
-DEFAULT_ENV = os.environ.get("MEDEO_ENV", "stg")
+DEFAULT_ENV = os.environ.get("MEDEO_ENV", "prd")
 
 ENV_DEFAULTS = {
-    "stg": {
-        "baseUrl": "https://api.stg.medeo.app",
-        "ossBaseUrl": "https://oss.stg.medeo.app",
-        "apiKeyUrl": os.environ.get(
-            "MEDEO_SIGNUP_URL",
-            "https://stg.medeo.app/dev/apikey",
-        ),
-    },
     "prd": {
         "baseUrl": "https://api.prd.medeo.app",
         "ossBaseUrl": "https://oss.prd.medeo.app",
@@ -228,7 +220,7 @@ def _get_config(env: Optional[str] = None) -> dict:
       4. Built-in defaults (base URLs)
     """
     target = env or DEFAULT_ENV
-    defaults = ENV_DEFAULTS.get(target, ENV_DEFAULTS["stg"])
+    defaults = ENV_DEFAULTS.get(target, ENV_DEFAULTS["prd"])
 
     # 1) Environment variable (primary — from raw-config.json env section)
     env_cfg = _load_config_from_env(target)
@@ -255,7 +247,7 @@ def _get_config(env: Optional[str] = None) -> dict:
 def _check_api_key(config: dict):
     """Exit with instructions if API key is missing."""
     if not config.get("apiKey"):
-        get_key_url = ENV_DEFAULTS.get(DEFAULT_ENV, ENV_DEFAULTS["stg"])["apiKeyUrl"]
+        get_key_url = ENV_DEFAULTS.get(DEFAULT_ENV, ENV_DEFAULTS["prd"])["apiKeyUrl"]
         print(json.dumps({
             "error": "Medeo API key not configured",
             "setup_required": True,
@@ -1137,7 +1129,7 @@ def cmd_config_init(args, config: dict):
         raw[target]["apiKey"] = args.api_key
 
     # Set defaults
-    defaults = ENV_DEFAULTS.get(target, ENV_DEFAULTS["stg"])
+    defaults = ENV_DEFAULTS.get(target, ENV_DEFAULTS["prd"])
     raw[target].setdefault("baseUrl", defaults["baseUrl"])
     raw[target].setdefault("ossBaseUrl", defaults["ossBaseUrl"])
     raw["env"] = target
