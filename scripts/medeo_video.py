@@ -41,9 +41,17 @@ LAST_JOB_FILE = STATE_DIR / "last_job.json"
 HISTORY_DIR = STATE_DIR / "history"
 
 # Defaults
-DEFAULT_ENV = os.environ.get("MEDEO_ENV", "prd")
+DEFAULT_ENV = os.environ.get("MEDEO_ENV", "stg")
 
 ENV_DEFAULTS = {
+    "stg": {
+        "baseUrl": "https://api.stg.medeo.app",
+        "ossBaseUrl": "https://oss.stg.medeo.app",
+        "apiKeyUrl": os.environ.get(
+            "MEDEO_SIGNUP_URL",
+            "https://stg.medeo.app/dev/apikey",
+        ),
+    },
     "prd": {
         "baseUrl": "https://api.prd.medeo.app",
         "ossBaseUrl": "https://oss.prd.medeo.app",
@@ -220,7 +228,7 @@ def _get_config(env: Optional[str] = None) -> dict:
       4. Built-in defaults (base URLs)
     """
     target = env or DEFAULT_ENV
-    defaults = ENV_DEFAULTS.get(target, ENV_DEFAULTS["prd"])
+    defaults = ENV_DEFAULTS.get(target, ENV_DEFAULTS["stg"])
 
     # 1) Environment variable (primary — from raw-config.json env section)
     env_cfg = _load_config_from_env(target)
@@ -247,7 +255,7 @@ def _get_config(env: Optional[str] = None) -> dict:
 def _check_api_key(config: dict):
     """Exit with instructions if API key is missing."""
     if not config.get("apiKey"):
-        get_key_url = ENV_DEFAULTS.get(DEFAULT_ENV, ENV_DEFAULTS["prd"])["apiKeyUrl"]
+        get_key_url = ENV_DEFAULTS.get(DEFAULT_ENV, ENV_DEFAULTS["stg"])["apiKeyUrl"]
         print(json.dumps({
             "error": "Medeo API key not configured",
             "setup_required": True,
@@ -747,16 +755,35 @@ def build_spawn_task(message, media_urls=None, media_ids=None,
         "Wait for the command to complete — do NOT background it.\n\n"
         "When the command finishes:\n"
         "- If the JSON output contains \"status\": \"completed\":\n"
-        "  1. Extract the \"video_url\" from the JSON output.\n"
-        "  2. Announce the \"video_url\" to the user along with "
-        "\"total_duration_seconds\".\n"
+        "  1. Extract \"video_url\", \"thumbnail_url\", and "
+        "\"total_duration_seconds\" from the JSON output.\n"
+        "  2. **Deliver the video using the best method for the current "
+        "IM channel:**\n"
+        "     - **Feishu**: Download the video locally, then send via feishu_send_video.py "
+        "with cover image and duration:\n"
+        "       ```\n"
+        "       curl -sL -o /tmp/medeo_result.mp4 \"<video_url>\"\n"
+        "       # Use thumbnail_url from JSON as cover (preferred)\n"
+        "       # If thumbnail_url is empty, extract first frame as fallback:\n"
+        "       # ffmpeg -i /tmp/medeo_result.mp4 -vframes 1 -q:v 2 "
+        "/tmp/medeo_cover.jpg -y 2>/dev/null\n"
+        "       python3 {base_dir}/scripts/feishu_send_video.py "
+        "--video /tmp/medeo_result.mp4 --to \"<user_id>\" "
+        "--cover-url \"<thumbnail_url>\" "
+        "--duration <duration_ms>\n"
+        "       ```\n"
+        "     - **Other channels**: Share the video_url with a brief "
+        "summary (duration, resolution).\n"
+        "  3. Always include a short text summary: prompt used, "
+        "duration, resolution.\n"
         "- If the error indicates insufficient credits (积分不足 / "
         "insufficient balance / quota exceeded), inform the user that their "
         "Medeo credits have run out and guide them to top up at "
         "{topup_url} — once recharged, they can ask to retry.\n"
         "- For other failures, announce the error message and suggest the "
         "user try again or adjust their prompt."
-    ).format(cmd=cmd_str, topup_url=MEDEO_TOPUP_URL)
+    ).format(cmd=cmd_str, topup_url=MEDEO_TOPUP_URL,
+             base_dir=str(Path(__file__).resolve().parent.parent))
 
     label = message[:60] + "..." if len(message) > 60 else message
 
@@ -940,6 +967,9 @@ def cmd_generate(args, config: dict):
     raw_url = result_data.get("url", "")
     video_url = resolve_video_url(config, raw_url)
     metadata = result_data.get("metadata", {})
+    # Extract thumbnail URL (relative path like assets/medias/media_xxx.png)
+    raw_thumbnail = render_result.get("thumbnail_url", "")
+    thumbnail_url = resolve_video_url(config, raw_thumbnail) if raw_thumbnail else ""
 
     stage_durations["render"] = {
         "duration_seconds": round(time.time() - t0, 1),
@@ -958,6 +988,7 @@ def cmd_generate(args, config: dict):
         "video_draft_id": video_draft_id,
         "video_draft_op_record_id": video_draft_op_record_id,
         "video_url": video_url,
+        "thumbnail_url": thumbnail_url,
         "metadata": metadata,
         "media_ids": media_ids,
         "settings": settings,
@@ -1107,7 +1138,7 @@ def cmd_config_init(args, config: dict):
         raw[target]["apiKey"] = args.api_key
 
     # Set defaults
-    defaults = ENV_DEFAULTS.get(target, ENV_DEFAULTS["prd"])
+    defaults = ENV_DEFAULTS.get(target, ENV_DEFAULTS["stg"])
     raw[target].setdefault("baseUrl", defaults["baseUrl"])
     raw[target].setdefault("ossBaseUrl", defaults["ossBaseUrl"])
     raw["env"] = target

@@ -76,7 +76,12 @@ Use in generation: `--recipe-id "recipe_01..."`. See [docs/recipes.md](docs/reci
 1. **Always async** — `spawn-task` + `sessions_spawn` for generation
 2. **One call for stories** — full storylines in one `--message`, never split
 3. **Insufficient credits** — share recharge link from error output
-4. **Feishu delivery** — if the user is on Feishu, send the actual video file using `scripts/feishu_send_video.py` (not just a URL link). See [docs/feishu-send.md](docs/feishu-send.md) for details. Always include a cover image and duration.
+4. **IM-native delivery** — After generation, deliver the video using the IM channel's native method (not just a URL):
+   - **Feishu**: Use `scripts/feishu_send_video.py` to send the actual video file with cover image and duration. See [docs/feishu-send.md](docs/feishu-send.md).
+   - **Other channels**: Share `video_url` with a brief summary.
+   - **Cover image URL**: The generate output JSON includes `thumbnail_url` — this is the API-returned cover image, constructed as `{ossBaseUrl}/{thumbnail_relative_path}` (e.g. `https://oss.stg.medeo.app/assets/medias/media_xxx.png`).
+   - **Video URL**: Same pattern — `{ossBaseUrl}/{video_relative_path}` (e.g. `https://oss.stg.medeo.app/exported_video/v_xxx`).
+   - **Fallback**: If `thumbnail_url` is empty, use `ffmpeg -i video.mp4 -vframes 1 -q:v 2 cover.jpg -y` to extract the first frame as cover.
 5. **Timeline completion** — Medeo's backend is an AI agent. Generated images/videos must be added to the Timeline to trigger task completion and rendering. Always append to your prompt: "Add the generated video/image to the Timeline."
 
 ## 7. Error Handling
