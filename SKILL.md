@@ -78,7 +78,7 @@ Use in generation: `--recipe-id "recipe_01..."`. See [docs/recipes.md](docs/reci
 3. **Insufficient credits** — share recharge link from error output
 4. **IM-native delivery** — After generation, deliver the video using the IM channel's native method (not just a URL):
    - **Feishu**: Use `scripts/feishu_send_video.py` to send the actual video file with cover image and duration. See [docs/feishu-send.md](docs/feishu-send.md).
-   - **Other channels**: Share `video_url` with a brief summary.
+   - **Other channels**: Use the channel's native method to send the video file directly (e.g. Telegram sendVideo, Discord file upload). Only fall back to sharing `video_url` as a link if native file sending is unavailable.
    - **Cover image URL**: The generate output JSON includes `thumbnail_url` — the API always returns this field. Constructed as `{ossBaseUrl}/{thumbnail_relative_path}` (e.g. `https://oss.stg.medeo.app/assets/medias/media_xxx.png`).
    - **Video URL**: Same pattern — `{ossBaseUrl}/{video_relative_path}` (e.g. `https://oss.stg.medeo.app/exported_video/v_xxx`).
 5. **Timeline completion** — Medeo's backend is an AI agent. Generated images/videos must be added to the Timeline to trigger task completion and rendering. Always append to your prompt: "Add the generated video/image to the Timeline."

@@ -41,9 +41,17 @@ LAST_JOB_FILE = STATE_DIR / "last_job.json"
 HISTORY_DIR = STATE_DIR / "history"
 
 # Defaults
-DEFAULT_ENV = os.environ.get("MEDEO_ENV", "prd")
+DEFAULT_ENV = os.environ.get("MEDEO_ENV", "stg")
 
 ENV_DEFAULTS = {
+    "stg": {
+        "baseUrl": "https://api.stg.medeo.app",
+        "ossBaseUrl": "https://oss.stg.medeo.app",
+        "apiKeyUrl": os.environ.get(
+            "MEDEO_SIGNUP_URL",
+            "https://stg.medeo.app/dev/apikey",
+        ),
+    },
     "prd": {
         "baseUrl": "https://api.prd.medeo.app",
         "ossBaseUrl": "https://oss.prd.medeo.app",
@@ -220,7 +228,7 @@ def _get_config(env: Optional[str] = None) -> dict:
       4. Built-in defaults (base URLs)
     """
     target = env or DEFAULT_ENV
-    defaults = ENV_DEFAULTS.get(target, ENV_DEFAULTS["prd"])
+    defaults = ENV_DEFAULTS.get(target, ENV_DEFAULTS["stg"])
 
     # 1) Environment variable (primary — from raw-config.json env section)
     env_cfg = _load_config_from_env(target)
@@ -247,7 +255,7 @@ def _get_config(env: Optional[str] = None) -> dict:
 def _check_api_key(config: dict):
     """Exit with instructions if API key is missing."""
     if not config.get("apiKey"):
-        get_key_url = ENV_DEFAULTS.get(DEFAULT_ENV, ENV_DEFAULTS["prd"])["apiKeyUrl"]
+        get_key_url = ENV_DEFAULTS.get(DEFAULT_ENV, ENV_DEFAULTS["stg"])["apiKeyUrl"]
         print(json.dumps({
             "error": "Medeo API key not configured",
             "setup_required": True,
@@ -760,8 +768,11 @@ def build_spawn_task(message, media_urls=None, media_ids=None,
         "--cover-url \"<thumbnail_url>\" "
         "--duration <duration_ms>\n"
         "       ```\n"
-        "     - **Other channels**: Share the video_url with a brief "
-        "summary (duration, resolution).\n"
+        "     - **Other channels**: Use the channel's native method to send "
+        "the video file directly (e.g. Telegram sendVideo, Discord file "
+        "upload, WhatsApp media message). Download the video first, "
+        "then send via the channel's API. Only fall back to sharing "
+        "the video_url as a link if native file sending is unavailable.\n"
         "  3. Always include a short text summary: prompt used, "
         "duration, resolution.\n"
         "- If the error indicates insufficient credits (积分不足 / "
@@ -1126,7 +1137,7 @@ def cmd_config_init(args, config: dict):
         raw[target]["apiKey"] = args.api_key
 
     # Set defaults
-    defaults = ENV_DEFAULTS.get(target, ENV_DEFAULTS["prd"])
+    defaults = ENV_DEFAULTS.get(target, ENV_DEFAULTS["stg"])
     raw[target].setdefault("baseUrl", defaults["baseUrl"])
     raw[target].setdefault("ossBaseUrl", defaults["ossBaseUrl"])
     raw["env"] = target
