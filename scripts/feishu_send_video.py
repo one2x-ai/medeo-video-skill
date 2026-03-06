@@ -40,12 +40,21 @@ def get_feishu_credentials():
     with open(config_path) as f:
         config = json.load(f)
     feishu = config.get("channels", {}).get("feishu", {})
-    app_id = feishu.get("appId", "")
-    app_secret = feishu.get("appSecret", "")
+    accounts = feishu.get("accounts", {})
+    # Try accounts.main first, then top-level
+    if accounts:
+        main_acct = accounts.get("main", {})
+        app_id = main_acct.get("appId", "")
+        app_secret = main_acct.get("appSecret", "")
+    else:
+        app_id = feishu.get("appId", "")
+        app_secret = feishu.get("appSecret", "")
     if not app_id or not app_secret:
-        # fallback to hardcoded (medeo storyboard app)
-        app_id = "cli_a9178756e37a9bb4"
-        app_secret = "32jWOOxcCOcgYf59lUGChu65UEIsslVC"
+        print(json.dumps({
+            "error": "Feishu credentials not found in ~/.openclaw/openclaw.json",
+            "hint": "Configure channels.feishu.accounts.main.appId and appSecret"
+        }), file=sys.stderr)
+        sys.exit(1)
     return app_id, app_secret
 
 
