@@ -747,16 +747,34 @@ def build_spawn_task(message, media_urls=None, media_ids=None,
         "Wait for the command to complete — do NOT background it.\n\n"
         "When the command finishes:\n"
         "- If the JSON output contains \"status\": \"completed\":\n"
-        "  1. Extract the \"video_url\" from the JSON output.\n"
-        "  2. Announce the \"video_url\" to the user along with "
-        "\"total_duration_seconds\".\n"
+        "  1. Extract \"video_url\", \"thumbnail_url\", and "
+        "\"total_duration_seconds\" from the JSON output.\n"
+        "  2. **Deliver the video using the best method for the current "
+        "IM channel:**\n"
+        "     - **Feishu**: Download the video locally, then send via feishu_send_video.py "
+        "with cover image and duration:\n"
+        "       ```\n"
+        "       curl -sL -o /tmp/medeo_result.mp4 \"<video_url>\"\n"
+        "       python3 {base_dir}/scripts/feishu_send_video.py "
+        "--video /tmp/medeo_result.mp4 --to \"<user_id>\" "
+        "--cover-url \"<thumbnail_url>\" "
+        "--duration <duration_ms>\n"
+        "       ```\n"
+        "     - **Other channels**: Use the channel's native method to send "
+        "the video file directly (e.g. Telegram sendVideo, Discord file "
+        "upload, WhatsApp media message). Download the video first, "
+        "then send via the channel's API. Only fall back to sharing "
+        "the video_url as a link if native file sending is unavailable.\n"
+        "  3. Always include a short text summary: prompt used, "
+        "duration, resolution.\n"
         "- If the error indicates insufficient credits (积分不足 / "
         "insufficient balance / quota exceeded), inform the user that their "
         "Medeo credits have run out and guide them to top up at "
         "{topup_url} — once recharged, they can ask to retry.\n"
         "- For other failures, announce the error message and suggest the "
         "user try again or adjust their prompt."
-    ).format(cmd=cmd_str, topup_url=MEDEO_TOPUP_URL)
+    ).format(cmd=cmd_str, topup_url=MEDEO_TOPUP_URL,
+             base_dir=str(Path(__file__).resolve().parent.parent))
 
     label = message[:60] + "..." if len(message) > 60 else message
 
@@ -940,6 +958,9 @@ def cmd_generate(args, config: dict):
     raw_url = result_data.get("url", "")
     video_url = resolve_video_url(config, raw_url)
     metadata = result_data.get("metadata", {})
+    # Extract thumbnail URL (relative path like assets/medias/media_xxx.png)
+    raw_thumbnail = render_result.get("thumbnail_url", "")
+    thumbnail_url = resolve_video_url(config, raw_thumbnail) if raw_thumbnail else ""
 
     stage_durations["render"] = {
         "duration_seconds": round(time.time() - t0, 1),
@@ -958,6 +979,7 @@ def cmd_generate(args, config: dict):
         "video_draft_id": video_draft_id,
         "video_draft_op_record_id": video_draft_op_record_id,
         "video_url": video_url,
+        "thumbnail_url": thumbnail_url,
         "metadata": metadata,
         "media_ids": media_ids,
         "settings": settings,
