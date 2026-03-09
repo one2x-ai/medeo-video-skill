@@ -45,7 +45,7 @@ python3 {baseDir}/scripts/medeo_video.py upload --url "https://example.com/photo
 Use `upload-file` when the user sends an image via Telegram, Discord, Feishu, or as a local file.
 This uses the direct upload API (prepare → S3 presigned PUT → register) instead of URL-based upload.
 
-**Trigger:** When the user sends an image/photo attachment in any IM channel, automatically call `upload-file` to get a `media_id`, then use that `media_id` in the video generation.
+**Trigger:** Only when the user **explicitly requests video generation** AND sends an image attachment in the same message (e.g. "帮我用这张图生成视频" / "make a video with this photo"). Do NOT auto-upload on every image message — other skills or conversations may involve images unrelated to video generation.
 
 ```bash
 # From local file (downloaded by OpenClaw from attachment)
@@ -125,7 +125,7 @@ Use in generation: `--recipe-id "recipe_01..."`. See [docs/recipes.md](docs/reci
 1. **Always async** — `spawn-task` + `sessions_spawn` for generation
 2. **One call for stories** — full storylines in one `--message`, never split
 3. **Insufficient credits** — share recharge link from error output
-4. **IM image auto-upload** — When user sends an image attachment, always run `upload-file` first to get a `media_id`, then pass it to generation via `--media-ids`. Never ask the user to provide a URL for images they've already sent.
+4. **IM image upload** — Only upload images when the user explicitly asks for video generation with that image. Do NOT auto-upload every image message (user may have other skills installed). When triggered: run `upload-file` first → get `media_id` → pass to generation via `--media-ids`. Never ask the user for a URL if they already sent the image.
 5. **IM-native delivery** — After generation, deliver the video using the IM channel's native method (not just a URL):
    - **Feishu**: Use `scripts/feishu_send_video.py` to send the actual video file with cover image and duration. See [docs/feishu-send.md](docs/feishu-send.md).
    - **Other channels**: Use the channel's native method to send the video file directly (e.g. Telegram sendVideo, Discord file upload). Only fall back to sharing `video_url` as a link if native file sending is unavailable.
