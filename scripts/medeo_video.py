@@ -977,7 +977,12 @@ def _upload_file_bytes(config: dict, file_bytes: bytes, filename: str,
     _log(f"Got presigned URL, storage_key={storage_key}")
 
     # Step 2: PUT file bytes directly to S3
-    content_type = f"image/{ext}" if ext in ("jpg", "jpeg", "png", "webp", "gif") else f"video/{ext}"
+    _CONTENT_TYPE_MAP = {
+        "jpg": "image/jpeg", "jpeg": "image/jpeg",
+        "png": "image/png", "webp": "image/webp", "gif": "image/gif",
+        "mp4": "video/mp4", "mov": "video/quicktime", "avi": "video/x-msvideo",
+    }
+    content_type = _CONTENT_TYPE_MAP.get(ext, f"application/octet-stream")
     put_resp = requests.put(
         presigned_url,
         data=file_bytes,
@@ -1105,7 +1110,11 @@ def cmd_upload_file(args, config: dict):
         _log(f"Downloaded {len(file_bytes)} bytes from Telegram")
 
     # --- Source: Feishu image ---
-    elif args.feishu_message_id and args.feishu_image_key:
+    elif args.feishu_image_key:
+        if not args.feishu_message_id:
+            print(json.dumps({"error": "--feishu-message-id required with --feishu-image-key"}),
+                  file=sys.stderr)
+            sys.exit(1)
         feishu_token = args.feishu_app_token or os.environ.get("FEISHU_APP_TOKEN", "")
         if not feishu_token:
             print(json.dumps({"error": "--feishu-app-token or FEISHU_APP_TOKEN required"}),
@@ -1133,7 +1142,7 @@ def cmd_upload_file(args, config: dict):
         _log(f"Downloaded {len(file_bytes)} bytes from Feishu")
 
     else:
-        print(json.dumps({"error": "Must provide one of: --file, --url, --telegram-file-id, --feishu-message-id+--feishu-image-key"}),
+        print(json.dumps({"error": "Must provide one of: --file, --url, --telegram-file-id, --feishu-image-key"}),
               file=sys.stderr)
         sys.exit(1)
 
@@ -1525,13 +1534,13 @@ def build_parser() -> argparse.ArgumentParser:
                            help="Direct image/video URL (downloaded first)")
     src_group.add_argument("--telegram-file-id", metavar="FILE_ID",
                            help="Telegram file_id (requires --telegram-bot-token)")
-    src_group.add_argument("--feishu-message-id", metavar="MSG_ID",
-                           help="Feishu message_id (requires --feishu-image-key)")
+    src_group.add_argument("--feishu-image-key", metavar="IMAGE_KEY",
+                           help="Feishu image_key (requires --feishu-message-id)")
     p_uf.add_argument("--telegram-bot-token", metavar="TOKEN",
                       default=os.environ.get("TELEGRAM_BOT_TOKEN", ""),
                       help="Telegram Bot token (or set TELEGRAM_BOT_TOKEN env)")
-    p_uf.add_argument("--feishu-image-key", metavar="IMAGE_KEY",
-                      help="Feishu image_key (required with --feishu-message-id)")
+    p_uf.add_argument("--feishu-message-id", metavar="MSG_ID",
+                      help="Feishu message_id (required with --feishu-image-key)")
     p_uf.add_argument("--feishu-app-token", metavar="TOKEN",
                       default=os.environ.get("FEISHU_APP_TOKEN", ""),
                       help="Feishu tenant_access_token (or set FEISHU_APP_TOKEN env)")

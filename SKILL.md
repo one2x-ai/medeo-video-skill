@@ -24,6 +24,7 @@ If no API Key is configured, the script outputs `"setup_required": true`.
 python3 {baseDir}/scripts/medeo_video.py spawn-task \
   --message "your video description or full screenplay" \
   --media-ids "media_01..." \                    # optional: pre-uploaded media IDs
+  --media-urls "https://example.com/ref.jpg" \   # optional: URLs (auto-uploaded inline)
   --recipe-id "recipe_01..." \                   # optional: use a template
   --aspect-ratio "9:16" \                        # optional: default 16:9
   --duration-ms 30000                            # optional: target duration ms
