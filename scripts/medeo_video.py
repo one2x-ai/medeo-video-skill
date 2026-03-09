@@ -437,6 +437,78 @@ def api_get_media_job_status(config: dict, job_id: str) -> dict:
     )
 
 
+def api_prepare_for_upload(config: dict, metadata_list: List[Dict[str, Any]]) -> dict:
+    """
+    Prepare for direct file upload: validate metadata and get presigned S3 URLs.
+
+    Args:
+        metadata_list: list of {"filename": str, "size_bytes": int, "extension": str}
+
+    Returns:
+        {"results": [{"is_valid": bool, "storage_key": str, "presigned_url": str, ...}]}
+    """
+    return _api_post(
+        config["baseUrl"],
+        "/api/v2/medias:prepare_for_upload",
+        config["apiKey"],
+        {"metadata_list": metadata_list},
+    )
+
+
+def api_create_from_upload(config: dict,
+                           uploaded_fileinfo_list: List[Dict[str, Any]],
+                           project_id: Optional[str] = None,
+                           idempotency_key: Optional[str] = None) -> dict:
+    """
+    Create medias from pre-uploaded files (after presigned PUT).
+
+    Args:
+        uploaded_fileinfo_list: list of {"storage_key": str, "file_metadata": {...}}
+        project_id: optional project ID
+        idempotency_key: optional dedup key
+
+    Returns:
+        {"jobs": [{"id": str, "state": str, "media_ids": [...]}]}
+    """
+    body: Dict[str, Any] = {"uploaded_fileinfo_list": uploaded_fileinfo_list}
+    if project_id:
+        body["project_id"] = project_id
+
+    headers: Dict[str, str] = {}
+    if idempotency_key:
+        headers["Idempotency-Key"] = idempotency_key
+
+    # _api_post doesn't support extra headers, use _api_request directly
+    base_url = config["baseUrl"]
+    api_key = config["apiKey"]
+    url = f"{base_url}/api/v2/medias:create_from_upload"
+
+    last_err = None
+    for attempt in range(MAX_RETRIES + 1):
+        try:
+            resp = requests.post(
+                url,
+                json=body,
+                headers={
+                    "Authorization": f"Bearer {api_key}",
+                    "Content-Type": "application/json",
+                    **headers,
+                },
+                timeout=(CONNECT_TIMEOUT, READ_TIMEOUT),
+            )
+            if resp.status_code >= 400:
+                err = _parse_error_response(resp)
+                raise err
+            return resp.json()
+        except MedeoApiError:
+            raise
+        except requests.RequestException as e:
+            last_err = MedeoApiError(message=f"Network error: {e}", case="network_error")
+        if attempt < MAX_RETRIES:
+            time.sleep(2 ** attempt)
+    raise last_err or MedeoApiError("Unknown error after retries")
+
+
 def api_initiate_video_creation(config: dict, message_text: str,
                                 media_ids: Optional[List[str]] = None,
                                 settings: Optional[dict] = None) -> dict:
@@ -871,6 +943,209 @@ def cmd_upload(args, config: dict):
     }, indent=2))
 
 
+def _upload_file_bytes(config: dict, file_bytes: bytes, filename: str,
+                       extension: str, project_id: Optional[str] = None) -> str:
+    """
+    Upload raw file bytes via presigned S3 URL.
+
+    Flow: prepare_for_upload → PUT presigned_url → create_from_upload → poll → media_id
+
+    Returns: media_id (str)
+    Raises: MedeoApiError | MedeoPollTimeout | MedeoPollFailed
+    """
+    size_bytes = len(file_bytes)
+    ext = extension.lower().lstrip(".")
+    _log(f"Preparing upload: {filename} ({size_bytes} bytes, .{ext})")
+
+    # Step 1: get presigned URL + storage_key
+    prep_resp = api_prepare_for_upload(config, [{
+        "filename": filename,
+        "size_bytes": size_bytes,
+        "extension": ext,
+    }])
+    result = prep_resp.get("results", [{}])[0]
+
+    if not result.get("is_valid"):
+        err_msg = result.get("error_message", "File rejected by Medeo API")
+        raise MedeoApiError(
+            message=f"Upload preparation failed: {err_msg}",
+            case="upload_prep_rejected",
+        )
+
+    presigned_url = result["presigned_url"]
+    storage_key = result["storage_key"]
+    _log(f"Got presigned URL, storage_key={storage_key}")
+
+    # Step 2: PUT file bytes directly to S3
+    content_type = f"image/{ext}" if ext in ("jpg", "jpeg", "png", "webp", "gif") else f"video/{ext}"
+    put_resp = requests.put(
+        presigned_url,
+        data=file_bytes,
+        headers={"Content-Type": content_type},
+        timeout=(CONNECT_TIMEOUT, 120),
+    )
+    if put_resp.status_code not in (200, 204):
+        raise MedeoApiError(
+            message=f"S3 presigned PUT failed: HTTP {put_resp.status_code}",
+            case="s3_put_failed",
+            status_code=put_resp.status_code,
+        )
+    _log("File uploaded to S3 successfully")
+
+    # Step 3: register with Medeo (create_from_upload)
+    idempotency_key = str(uuid.uuid4())
+    create_resp = api_create_from_upload(
+        config,
+        uploaded_fileinfo_list=[{
+            "storage_key": storage_key,
+            "file_metadata": {
+                "filename": filename,
+                "size_bytes": size_bytes,
+                "extension": ext,
+            },
+        }],
+        project_id=project_id,
+        idempotency_key=idempotency_key,
+    )
+
+    jobs = create_resp.get("jobs", [])
+    if not jobs:
+        raise MedeoApiError(
+            message="create_from_upload returned no jobs",
+            case="no_jobs_returned",
+        )
+    job_id = jobs[0]["id"]
+    _log(f"Media registration job created: {job_id}")
+
+    # Step 4: poll for completion
+    poll_result = poll_media_upload(config, job_id, label="FileUpload")
+    media_ids = poll_result.get("media_ids", [])
+    if not media_ids:
+        raise MedeoApiError(
+            message="Upload job completed but returned no media_ids",
+            case="no_media_ids",
+        )
+    return media_ids[0]
+
+
+def cmd_upload_file(args, config: dict):
+    """
+    Upload a local file or download+upload from an IM attachment URL.
+
+    Supports:
+    - Local file:      --file /tmp/photo.jpg
+    - Direct URL:      --url https://cdn.example.com/photo.jpg  (downloaded first)
+    - Telegram:        --telegram-file-id <file_id> --telegram-bot-token <token>
+    - Feishu:          --feishu-message-id <msg_id> --feishu-image-key <key>
+    """
+    _check_api_key(config)
+
+    file_bytes: Optional[bytes] = None
+    filename: str = "upload"
+    extension: str = "jpg"
+
+    # --- Source: local file ---
+    if args.file:
+        path = Path(args.file)
+        if not path.exists():
+            print(json.dumps({"error": f"File not found: {args.file}"}), file=sys.stderr)
+            sys.exit(1)
+        file_bytes = path.read_bytes()
+        filename = path.name
+        extension = path.suffix.lstrip(".").lower() or "jpg"
+        _log(f"Reading local file: {path} ({len(file_bytes)} bytes)")
+
+    # --- Source: direct URL (download first) ---
+    elif args.url:
+        _log(f"Downloading from URL: {args.url}")
+        r = requests.get(args.url, timeout=(CONNECT_TIMEOUT, 60))
+        if r.status_code != 200:
+            print(json.dumps({"error": f"Failed to download URL: HTTP {r.status_code}"}),
+                  file=sys.stderr)
+            sys.exit(1)
+        file_bytes = r.content
+        # Try to infer extension from URL or Content-Type
+        url_path = args.url.split("?")[0]
+        ext_from_url = url_path.rsplit(".", 1)[-1].lower() if "." in url_path else ""
+        ct = r.headers.get("Content-Type", "")
+        ct_ext_map = {"image/jpeg": "jpg", "image/png": "png", "image/webp": "webp",
+                      "image/gif": "gif", "video/mp4": "mp4", "video/quicktime": "mov"}
+        extension = ext_from_url if ext_from_url in ("jpg", "jpeg", "png", "webp", "gif", "mp4", "mov") \
+            else ct_ext_map.get(ct.split(";")[0].strip(), "jpg")
+        filename = f"upload_{uuid.uuid4().hex[:8]}.{extension}"
+        _log(f"Downloaded {len(file_bytes)} bytes, ext={extension}")
+
+    # --- Source: Telegram file ---
+    elif args.telegram_file_id:
+        if not args.telegram_bot_token:
+            print(json.dumps({"error": "--telegram-bot-token required for Telegram upload"}),
+                  file=sys.stderr)
+            sys.exit(1)
+        token = args.telegram_bot_token
+        _log(f"Fetching Telegram file info: {args.telegram_file_id}")
+        r = requests.get(
+            f"https://api.telegram.org/bot{token}/getFile",
+            params={"file_id": args.telegram_file_id},
+            timeout=(CONNECT_TIMEOUT, READ_TIMEOUT),
+        )
+        r.raise_for_status()
+        data = r.json()
+        if not data.get("ok"):
+            print(json.dumps({"error": f"Telegram getFile failed: {data}"}), file=sys.stderr)
+            sys.exit(1)
+        file_path = data["result"]["file_path"]
+        ext_from_path = file_path.rsplit(".", 1)[-1].lower() if "." in file_path else "jpg"
+        extension = ext_from_path if ext_from_path in ("jpg", "jpeg", "png", "webp", "gif", "mp4", "mov") else "jpg"
+        filename = f"tg_{args.telegram_file_id[:12]}.{extension}"
+        dl_url = f"https://api.telegram.org/file/bot{token}/{file_path}"
+        _log(f"Downloading Telegram file: {dl_url}")
+        r2 = requests.get(dl_url, timeout=(CONNECT_TIMEOUT, 60))
+        r2.raise_for_status()
+        file_bytes = r2.content
+        _log(f"Downloaded {len(file_bytes)} bytes from Telegram")
+
+    # --- Source: Feishu image ---
+    elif args.feishu_message_id and args.feishu_image_key:
+        feishu_token = args.feishu_app_token or os.environ.get("FEISHU_APP_TOKEN", "")
+        if not feishu_token:
+            print(json.dumps({"error": "--feishu-app-token or FEISHU_APP_TOKEN required"}),
+                  file=sys.stderr)
+            sys.exit(1)
+        _log(f"Downloading Feishu image: msg={args.feishu_message_id} key={args.feishu_image_key}")
+        r = requests.get(
+            f"https://open.feishu.cn/open-apis/im/v1/messages/{args.feishu_message_id}/resources/{args.feishu_image_key}",
+            params={"type": "image"},
+            headers={"Authorization": f"Bearer {feishu_token}"},
+            timeout=(CONNECT_TIMEOUT, 60),
+        )
+        if r.status_code != 200:
+            print(json.dumps({"error": f"Feishu download failed: HTTP {r.status_code}"}),
+                  file=sys.stderr)
+            sys.exit(1)
+        file_bytes = r.content
+        extension = "jpg"
+        ct = r.headers.get("Content-Type", "")
+        if "png" in ct:
+            extension = "png"
+        elif "webp" in ct:
+            extension = "webp"
+        filename = f"feishu_{args.feishu_image_key[:12]}.{extension}"
+        _log(f"Downloaded {len(file_bytes)} bytes from Feishu")
+
+    else:
+        print(json.dumps({"error": "Must provide one of: --file, --url, --telegram-file-id, --feishu-message-id+--feishu-image-key"}),
+              file=sys.stderr)
+        sys.exit(1)
+
+    # Upload
+    media_id = _upload_file_bytes(
+        config, file_bytes, filename, extension,
+        project_id=getattr(args, "project_id", None),
+    )
+    _log(f"Upload complete! media_id={media_id}")
+    print(json.dumps({"media_id": media_id, "filename": filename}, indent=2))
+
+
 def cmd_generate(args, config: dict):
     """Full pipeline: upload → compose → render."""
     _check_api_key(config)
@@ -1240,6 +1515,29 @@ def build_parser() -> argparse.ArgumentParser:
     p_upload.add_argument("--no-wait", action="store_true",
                           help="Don't wait for completion")
 
+    # --- upload-file ---
+    p_uf = sub.add_parser("upload-file",
+                          help="Upload image/video from local file, URL, Telegram, or Feishu")
+    src_group = p_uf.add_mutually_exclusive_group(required=True)
+    src_group.add_argument("--file", metavar="PATH",
+                           help="Local file path (e.g. /tmp/photo.jpg)")
+    src_group.add_argument("--url", metavar="URL",
+                           help="Direct image/video URL (downloaded first)")
+    src_group.add_argument("--telegram-file-id", metavar="FILE_ID",
+                           help="Telegram file_id (requires --telegram-bot-token)")
+    src_group.add_argument("--feishu-message-id", metavar="MSG_ID",
+                           help="Feishu message_id (requires --feishu-image-key)")
+    p_uf.add_argument("--telegram-bot-token", metavar="TOKEN",
+                      default=os.environ.get("TELEGRAM_BOT_TOKEN", ""),
+                      help="Telegram Bot token (or set TELEGRAM_BOT_TOKEN env)")
+    p_uf.add_argument("--feishu-image-key", metavar="IMAGE_KEY",
+                      help="Feishu image_key (required with --feishu-message-id)")
+    p_uf.add_argument("--feishu-app-token", metavar="TOKEN",
+                      default=os.environ.get("FEISHU_APP_TOKEN", ""),
+                      help="Feishu tenant_access_token (or set FEISHU_APP_TOKEN env)")
+    p_uf.add_argument("--project-id", default=None,
+                      help="Optional Medeo project ID")
+
     # --- generate (full pipeline) ---
     p_gen = sub.add_parser("generate",
                            help="Full pipeline: upload → compose → render")
@@ -1330,6 +1628,7 @@ def build_parser() -> argparse.ArgumentParser:
 COMMAND_MAP = {
     "recipes": cmd_recipes,
     "upload": cmd_upload,
+    "upload-file": cmd_upload_file,
     "generate": cmd_generate,
     "spawn-task": cmd_spawn_task,
     "compose": cmd_compose,
