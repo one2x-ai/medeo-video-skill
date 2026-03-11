@@ -11,6 +11,52 @@ Generate AI videos from text. Medeo is an **AI video agent** that handles full s
 
 > ⚠️ **Do NOT split stories into multiple calls.** Pass the entire screenplay in one `--message`.
 
+## 0. Pre-Flight Check (MANDATORY — run before anything else)
+
+**Before running any command**, check if API key is configured:
+
+```bash
+python3 {baseDir}/scripts/medeo_video.py config 2>/dev/null | python3 -c "import sys,json; d=json.load(sys.stdin); print('ok' if d.get('apiKey') else 'missing')"
+```
+
+- Output `ok` → proceed normally
+- Output `missing` (or command fails) → **stop immediately**, do NOT run any other commands. Send the setup message using the **channel-appropriate method**:
+
+**Feishu** — use Feishu API directly (NOT `message` tool — it won't render cards):
+```python
+import json, urllib.request
+cfg = json.loads(open("/home/ec2-user/.openclaw/openclaw.json").read())
+feishu = cfg["channels"]["feishu"]["accounts"]["default"]
+token = json.loads(urllib.request.urlopen(urllib.request.Request(
+    "https://open.feishu.cn/open-apis/auth/v3/tenant_access_token/internal",
+    data=json.dumps({"app_id": feishu["appId"], "app_secret": feishu["appSecret"]}).encode(),
+    headers={"Content-Type": "application/json"}
+)).read())["tenant_access_token"]
+card = {
+    "config": {"wide_screen_mode": True},
+    "header": {"title": {"tag": "plain_text", "content": "🎬 生成视频 — 需要先配置 API Key"}, "template": "blue"},
+    "elements": [{"tag": "div", "text": {"tag": "lark_md", "content": "需要你的 **Medeo API Key** 才能生成视频。\n\n**获取步骤：**\n1. 访问 https://medeo.app/dev/apikey\n   - 没有账号会自动引导注册，登录后直接显示 API Key\n2. 复制 `mk_` 开头的 key，回复给我\n\n拿到 key 之后我帮你一键配置好。"}}],
+}
+urllib.request.urlopen(urllib.request.Request(
+    "https://open.feishu.cn/open-apis/im/v1/messages?receive_id_type=open_id",
+    data=json.dumps({"receive_id": "<USER_OPEN_ID>", "msg_type": "interactive", "content": json.dumps(card)}).encode(),
+    headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
+))
+```
+
+**Telegram / Discord / 其他渠道** — 用 `message` tool 发普通文本（这些渠道支持 markdown，无需绕过）：
+```
+🎬 生成视频需要先配置 Medeo API Key
+
+步骤：
+1. 访问 https://medeo.app/dev/apikey（没有账号会引导注册，登录后显示 API Key）
+2. 复制 mk_ 开头的 key，回复给我
+
+拿到 key 之后我帮你一键配置好。
+```
+
+Once they provide the key: `python3 {baseDir}/scripts/medeo_video.py config-init --api-key "mk_..."`
+
 ## 1. First-Time Setup
 
 If no API Key is configured, the script outputs `"setup_required": true`.
@@ -127,11 +173,14 @@ Use in generation: `--recipe-id "recipe_01..."`. See [docs/recipes.md](docs/reci
 2. **One call for stories** — full storylines in one `--message`, never split
 3. **Insufficient credits** — share recharge link from error output
 4. **IM image upload** — Only upload images when the user explicitly asks for video generation with that image. Do NOT auto-upload every image message (user may have other skills installed). When triggered: run `upload-file` first → get `media_id` → pass to generation via `--media-ids`. Never ask the user for a URL if they already sent the image.
-5. **IM-native delivery** — After generation, deliver the video using the IM channel's native method (not just a URL):
-   - **Feishu**: Use `scripts/feishu_send_video.py` to send the actual video file with cover image and duration. See [docs/feishu-send.md](docs/feishu-send.md).
-   - **Other channels**: Use the channel's native method to send the video file directly (e.g. Telegram sendVideo, Discord file upload). Only fall back to sharing `video_url` as a link if native file sending is unavailable.
+5. **IM-native delivery** — After generation, deliver the video using the IM channel's native method (not just a URL). Each channel has a dedicated delivery script:
+   - **Feishu**: `python3 {baseDir}/scripts/feishu_send_video.py --video /tmp/result.mp4 --to "ou_xxx" --cover-url "<thumbnail_url>" --duration <ms>`
+   - **Telegram**: `TELEGRAM_BOT_TOKEN=$TELEGRAM_BOT_TOKEN python3 {baseDir}/scripts/telegram_send_video.py --video /tmp/result.mp4 --to "<chat_id>" --cover-url "<thumbnail_url>" --duration <seconds> --caption "🎬 Video ready!"`
+   - **Discord**: `python3 {baseDir}/scripts/discord_send_video.py --video /tmp/result.mp4 --channel-id "<channel_id>" --caption "🎬 Video ready!"` (25 MB limit; for larger files, share video_url as link)
+   - **WhatsApp / Signal / Other**: Use the `message` tool with `media` parameter, or share `video_url` as a link if native sending is unavailable.
    - **Cover image URL**: The generate output JSON includes `thumbnail_url` — the API always returns this field. Constructed as `{ossBaseUrl}/{thumbnail_relative_path}` (e.g. `https://oss.prd.medeo.app/assets/medias/media_xxx.png`).
    - **Video URL**: Same pattern — `{ossBaseUrl}/{video_relative_path}` (e.g. `https://oss.prd.medeo.app/exported_video/v_xxx`).
+   - **Security**: Never pass bot tokens as CLI args (visible in `ps`). Always use env vars: `TELEGRAM_BOT_TOKEN`, `DISCORD_BOT_TOKEN`.
 6. **Timeline completion** — Medeo's backend is an AI agent. Generated images/videos must be added to the Timeline to trigger task completion and rendering. Always append to your prompt: "Add the generated video/image to the Timeline."
 
 ## 7. Error Handling
@@ -151,6 +200,7 @@ Use in generation: `--recipe-id "recipe_01..."`. See [docs/recipes.md](docs/reci
 - [docs/recipes.md](docs/recipes.md) — Full recipe browsing and pagination
 - [docs/assets-upload.md](docs/assets-upload.md) — All supported formats, upload workflows
 - [docs/feishu-send.md](docs/feishu-send.md) — Sending generated video via Feishu (cover image, duration, compression)
+- [docs/multi-platform.md](docs/multi-platform.md) — Multi-platform video delivery (Feishu, Telegram, Discord, WhatsApp)
 
 ## 9. Data Storage
 
