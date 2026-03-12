@@ -1,134 +1,137 @@
 # 🎬 Medeo Video Generator
 
-AI-powered video generation skill for [OpenClaw](https://github.com/openclaw/openclaw) — create videos from text prompts using the [Medeo](https://medeo.app) platform.
+用 AI 从文字生成视频。告诉你的 AI 助手"帮我做个 XX 视频"，它会自动调用 [Medeo](https://medeo.app) 平台生成，几分钟后把视频发给你。
 
 ---
 
-## What Is This?
+## 安装
 
-> Tell your AI assistant "make me a video about XX", and it will automatically generate the video using Medeo's AI platform, sending you the video link in a few minutes.
+### 方法一：在 OpenClaw 中安装（推荐）
 
----
-
-## ✨ Features
-
-- **Text-to-Video** — Describe what you want, AI handles the rest
-- **Media Upload** — Provide images/video URLs as creative assets
-- **Recipe Templates** — Browse and use pre-built video styles
-- **Full Pipeline** — Upload → AI Compose → Render, fully automated
-- **Async Generation** — Runs in background, notifies you when done
-- **Job History** — Track past video generation jobs
-
----
-
-## 🚀 Quick Start (30 Seconds)
-
-### 1. Install the Skill
-
-Send this to your OpenClaw assistant:
+对你的 AI 助手说：
 
 ```
-Please install the medeo-video skill for video generation.
-GitHub link: https://github.com/one2x-ai/medeo-video-skill
+安装 medeo-video 技能，GitHub 地址：https://github.com/one2x-ai/medeo-video-skill
 ```
 
-### 2. Get Your API Key
+### 方法二：手动安装
 
-Your assistant will guide you to register and get an API key:
-
-1. Click the link your assistant sends you to sign up
-2. Get your API key (starts with `mk_`)
-3. Send the API key to your assistant — it will configure everything
-
-### 3. Start Making Videos!
-
-Just tell your assistant what video you want:
-
-```
-Make me a video about the coffee brewing process, with a cozy atmosphere
+```bash
+cd ~/.agents/skills/
+git clone https://github.com/one2x-ai/medeo-video-skill.git medeo-video
 ```
 
-```
-Use this image to create a product promo video
-[image URL]
-```
+安装完成后重启 OpenClaw Gateway：
 
-```
-Make me a vertical short video of a sunset timelapse
-```
-
-Your assistant will generate the video in the background (usually 5-10 min) and send you the link when it's done.
-
----
-
-## 📋 Usage Examples
-
-| What You Say | What Happens |
-|-------------|-------------|
-| "Make me a XX video" | Full auto video generation |
-| "Make a video with these assets" + URLs | Upload assets + generate |
-| "What video templates are available?" | List available recipes |
-| "Is the last video done?" | Check recent job status |
-| "Make a vertical short video" | 9:16 portrait video |
-
----
-
-## 💰 Credits
-
-- Video generation costs Medeo platform credits
-- If credits run out, your assistant will prompt you to top up
-- After recharging, just say "credits topped up, retry" to continue
-
----
-
-## ⚙️ Advanced Usage
-
-### Specify Video Parameters
-
-```
-Make a 30-second vertical video using the recipe_01... template
-```
-
-### Upload Assets Only
-
-```
-Upload this image to Medeo: [image URL]
-```
-
-### View History
-
-```
-Show me my recent videos
+```bash
+openclaw gateway restart
 ```
 
 ---
 
-## 🔧 Requirements
+## 配置 API Key（首次使用必须）
 
-- Python 3.6+
-- `requests` library (auto-installed by assistant)
+安装后第一次使用时，助手会自动提示你配置 API Key：
 
----
+1. 打开 👉 **https://medeo.app/dev/apikey**
+   - 没有账号？页面会自动引导你注册，登录后直接显示 API Key
+2. 复制 `mk_` 开头的 Key
+3. 发给助手，它会自动帮你配好
 
-## 📁 Data Storage
-
-All data is stored under `~/.openclaw/workspace/medeo-video/`:
-
-| File | Purpose |
-|------|---------|
-| `config.json` | API key configuration |
-| `last_job.json` | Latest video job record |
-| `history/` | Historical job records (auto-keeps latest 50) |
+就这么简单，一次配置永久有效。
 
 ---
 
-## 🔗 Links
+## 使用方法
 
-- [Medeo Platform](https://medeo.app)
-- [API Documentation](https://docs.prd.medeo.app/)
+### 📝 文字生成视频
+
+直接告诉助手你想要什么视频：
+
+```
+帮我生成一个咖啡冲泡过程的视频，温馨风格
+```
+
+```
+Make me a 30-second video about ocean waves at sunset
+```
+
+```
+做一个产品介绍视频，主题是新款运动鞋发布
+```
+
+### 🖼️ 图片 + 文字生成视频
+
+发一张图片（或图片链接），然后说明你想怎么用它：
+
+```
+用这张图生成一个产品宣传视频
+[直接发送图片]
+```
+
+```
+帮我用这张照片做个视频 https://example.com/photo.jpg
+```
+
+助手会自动上传你的图片，确保视频中使用的就是你提供的素材。
+
+### 🎞️ 竖版短视频
+
+想要抖音 / TikTok 竖版？直接说：
+
+```
+做一个竖版短视频，主题是日落延时
+```
 
 ---
 
-## 📄 License
+## 更多功能
+
+| 你说的话 | 效果 |
+|---------|------|
+| "帮我做个 XX 视频" | 自动生成视频 |
+| "用这张图做视频" + 发图 | 用你的图片生成 |
+| "做竖版的" / "9:16 比例" | 竖版短视频 |
+| "有哪些视频模板？" | 浏览预设模板 |
+| "上次视频好了吗？" | 查看最近任务状态 |
+| "我的视频历史" | 查看历史生成记录 |
+
+---
+
+## 常见问题
+
+### 生成需要多久？
+
+通常 5-15 分钟。复杂脚本可能需要更长。生成过程是后台异步的，完成后助手会自动把视频发给你。
+
+### 支持哪些图片格式？
+
+`.jpg`、`.png`、`.webp`、`.mp4`、`.mov`、`.gif`
+
+### 积分用完了怎么办？
+
+助手会提示你充值链接。充完值后说"充好了，重新试一下"即可。
+
+### 支持哪些聊天平台？
+
+Feishu（飞书）、Telegram、Discord、WhatsApp、Signal 等 OpenClaw 支持的所有平台均可使用。视频会直接发送到你的聊天窗口。
+
+---
+
+## 技术信息
+
+- **依赖**：Python 3.6+（纯标准库，无需额外安装）
+- **数据存储**：`~/.openclaw/workspace/medeo-video/`（API 配置 + 历史记录）
+- **API 文档**：https://docs.prd.medeo.app/
+
+---
+
+## 链接
+
+- [Medeo 平台](https://medeo.app)
+- [OpenClaw](https://github.com/openclaw/openclaw)
+- [ClawhHub 技能市场](https://clawhub.com)
+
+---
 
 MIT License
