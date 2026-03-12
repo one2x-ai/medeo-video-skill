@@ -1,6 +1,6 @@
 ---
 name: medeo-video
-version: 1.4.0
+version: 1.5.0
 description: AI-powered video generation skill. Use when the user wants to generate videos from text descriptions, browse video recipes, upload assets, or manage video creation workflows.
 metadata: {"openclaw":{"emoji":"🎬","requires":{"bins":["python3"],"env":{"MEDEO_API_KEY":{"required":true,"description":"Medeo API key (starts with mk_)"}}},"tags":["video","ai-video","medeo","video-generation","rendering","recipes","media","upload"]}}
 ---
@@ -65,35 +65,61 @@ If no API Key is configured, the script outputs `"setup_required": true`.
 
 ## 2. Generate a Video (5-30 min, always async)
 
+Users only need to know **3 ways** to generate a video:
+
+1. **发文字** → 生成视频
+2. **发文字 + 上传图片** → 用图片素材生成视频
+3. **发文字 + 图片 URL** → 用 URL 图片生成视频
+
+The agent handles everything else silently.
+
+### Usage 1: Text only
+
 ```bash
-# Step 1: Build the task
 python3 {baseDir}/scripts/medeo_video.py spawn-task \
-  --message "your video description or full screenplay" \
-  --deliver-to "oc_xxx_or_ou_xxx" \              # REQUIRED: delivery target (see below)
-  --deliver-channel "feishu" \                   # REQUIRED: feishu|telegram|discord|other
-  --media-ids "media_01..." \                    # optional: pre-uploaded media IDs
-  --media-urls "https://example.com/ref.jpg" \   # optional: URLs (auto-uploaded inline)
-  --recipe-id "recipe_01..." \                   # optional: use a template
-  --aspect-ratio "9:16" \                        # optional: default 16:9
-  --duration-ms 30000 \                          # optional: target duration ms
-  --voice-id "voice_01..." \                     # optional: voice for narration
-  --video-style-id "style_01..." \               # optional: visual style template
-  --asset-sources ai_images my_uploaded_assets \ # optional: restrict asset sources
-  --no-render                                    # optional: stop after compose (skip render)
+  --message "用户的视频描述" \
+  --deliver-to "oc_xxx" \
+  --deliver-channel "feishu"
 ```
 
-### Asset Sources (`--asset-sources`)
+### Usage 2: Text + uploaded image (user sends image in chat)
 
-Controls where Medeo's AI agent finds visuals. Choose one or more (space-separated):
+```bash
+# First: upload-file to get media_id (see Section 3)
+python3 {baseDir}/scripts/medeo_video.py spawn-task \
+  --message "用户的视频描述" \
+  --media-ids "media_01..." \
+  --asset-sources my_uploaded_assets \
+  --deliver-to "oc_xxx" \
+  --deliver-channel "feishu"
+```
 
-| Source | Description |
-|--------|-------------|
-| `ai_images` | AI-generated images (default if media provided) |
-| `ai_videos` | AI-generated video clips |
-| `my_uploaded_assets` | Only use the images/videos you uploaded |
-| `stock_videos` | Stock video library |
+### Usage 3: Text + image URL
 
-When you upload reference images (`--media-ids`/`--media-urls`), pass `--asset-sources my_uploaded_assets` to ensure Medeo uses **only** your images rather than generating new ones.
+```bash
+python3 {baseDir}/scripts/medeo_video.py spawn-task \
+  --message "用户的视频描述" \
+  --media-urls "https://example.com/photo.jpg" \
+  --asset-sources my_uploaded_assets \
+  --deliver-to "oc_xxx" \
+  --deliver-channel "feishu"
+```
+
+> **Agent auto-behavior:** When the user provides images (Usage 2 or 3), always pass `--asset-sources my_uploaded_assets` so Medeo uses their images instead of generating new ones. The user does not need to know this flag exists.
+
+### Internal Parameters (agent use only — never expose to users)
+
+These are handled automatically by the agent. Do NOT mention them to users or ask users to provide them.
+
+| Flag | When to use | Default behavior |
+|------|------------|-----------------|
+| `--voice-id "voice_01..."` | When a specific voice is needed | Medeo picks automatically |
+| `--video-style-id "style_01..."` | When a specific visual style is needed | Medeo picks automatically |
+| `--asset-sources` | When user provides images: pass `my_uploaded_assets` | Medeo decides |
+| `--recipe-id "recipe_01..."` | When using a template | None |
+| `--aspect-ratio "9:16"` | When user specifies portrait/landscape | `16:9` |
+| `--duration-ms 30000` | When user specifies duration | Medeo decides |
+| `--no-render` | Debug only — skip rendering | Always render |
 
 ### Delivery Target (`--deliver-to`)
 
@@ -195,83 +221,29 @@ python3 {baseDir}/scripts/medeo_video.py upload-status --job-id "job_01..."
 
 Returns media status (`processing`, `completed`, `failed`) and `media_id` once done.
 
-## 4. Low-Level Pipeline Commands (Advanced)
+## 4. Low-Level Pipeline Commands (agent internal — never expose to users)
 
-> Most users should use `spawn-task` (Section 2), which handles the full pipeline automatically. These commands are for debugging or manual control.
-
-### 4a. Generate (compose + render pipeline)
-
-Runs the full pipeline: upload media → compose → render → poll until done.
-
-```bash
-python3 {baseDir}/scripts/medeo_video.py generate \
-  --message "your video description" \
-  --media-urls "https://example.com/photo.jpg" \   # optional: reference images
-  --media-ids "media_01..." \                       # optional: pre-uploaded media
-  --recipe-id "recipe_01..." \                      # optional: template
-  --aspect-ratio "16:9" \                           # optional: 16:9 (default) or 9:16
-  --duration-ms 30000 \                             # optional: target duration ms
-  --voice-id "voice_01..." \                        # optional: narration voice
-  --video-style-id "style_01..." \                  # optional: visual style
-  --asset-sources ai_images my_uploaded_assets \    # optional: restrict asset sources
-  --no-render                                       # optional: stop after compose (skip render)
-```
-
-**Note:** `generate` is synchronous and blocks until completion (can take 15+ min). For production use, prefer `spawn-task` + `sessions_spawn` which runs async.
-
-### 4b. Compose (create project only)
-
-Sends the message to Medeo's AI agent to create the video project (storyboard, scenes, assets). Does NOT render.
-
-```bash
-python3 {baseDir}/scripts/medeo_video.py compose \
-  --message "your video description" \
-  --media-ids "media_01..." \
-  --recipe-id "recipe_01..." \
-  --aspect-ratio "16:9" \
-  --duration-ms 30000 \
-  --voice-id "voice_01..." \
-  --video-style-id "style_01..." \
-  --asset-sources ai_images
-```
-
-Returns `task_id` and `project_id`. Use `compose-status` to poll.
-
-### 4c. Check Compose Status
-
-```bash
-python3 {baseDir}/scripts/medeo_video.py compose-status --task-id "task_01..."
-```
-
-Returns task state (`pending`, `running`, `completed`, `failed`) and `project_id` when done.
-
-### 4d. Render (export video from composed project)
-
-Triggers video rendering on an existing project:
-
-```bash
-python3 {baseDir}/scripts/medeo_video.py render --project-id "project_01..."
-```
-
-Returns `render_job_id`. Use `render-status` to poll.
-
-### 4e. Check Render Status
-
-```bash
-python3 {baseDir}/scripts/medeo_video.py render-status --job-id "render_job_01..."
-```
-
-Returns render state and `video_url` / `thumbnail_url` when complete.
-
-### Pipeline Flow Diagram
+> These are for agent debugging or manual intervention only. Users should never see these commands.
 
 ```
-spawn-task (recommended)
-    └── generate (blocking)
-            ├── upload (if --media-urls provided)
-            ├── compose → compose-status (poll)
-            └── render → render-status (poll)
+Pipeline flow:
+  spawn-task (recommended, async)
+      └── generate (blocking, same pipeline)
+              ├── upload (if --media-urls)
+              ├── compose → compose-status (poll)
+              └── render → render-status (poll)
 ```
+
+| Command | What it does | Key args |
+|---------|-------------|----------|
+| `generate` | Blocking full pipeline (upload→compose→render) | Same as spawn-task minus deliver flags |
+| `compose` | Create project only (no render) | `--message`, `--media-ids`, `--recipe-id` |
+| `compose-status` | Poll compose task | `--task-id "task_01..."` |
+| `render` | Render existing project | `--project-id "project_01..."` |
+| `render-status` | Poll render job | `--job-id "render_01..."` |
+| `upload-status` | Poll upload job | `--job-id "job_01..."` |
+
+All commands support `--no-wait` to return immediately without polling.
 
 ## 5. Browse Recipes
 
@@ -282,28 +254,23 @@ python3 {baseDir}/scripts/medeo_video.py recipes --cursor <c>  # paginate
 
 Use in generation: `--recipe-id "recipe_01..."`. See [docs/recipes.md](docs/recipes.md).
 
-## 6. Quick Commands (no spawn needed)
+## 6. Quick Commands Reference (for agent, not user-facing)
 
-| Command | Description |
-|---------|-------------|
-| **Upload** | |
-| `upload --url "URL"` | Upload from public URL (server-side fetch) |
-| `upload-file --file /tmp/photo.jpg` | Upload from local file |
-| `upload-file --url "https://..."` | Download URL → upload (for URLs that block server-side fetch) |
-| `upload-file --telegram-file-id "..." --telegram-bot-token "$TOKEN"` | Upload Telegram image attachment |
-| `upload-file --feishu-image-key "img_v3_..." --feishu-message-id "om_..."` | Upload Feishu image attachment |
-| `upload-status --job-id "job_01..."` | Check upload job status |
-| **Browse** | |
-| `recipes` | List video templates |
-| `recipes --limit 20 --starting-after "recipe_01..."` | Paginate recipes |
-| **Status & History** | |
-| `compose-status --task-id "task_01..."` | Check compose task progress |
-| `render-status --job-id "render_01..."` | Check render job progress |
-| `last-job` | Latest job status |
-| `history` | Job history (last 50) |
-| **Config** | |
-| `config` | Show current configuration |
-| `config-init --api-key "mk_..."` | Initialize API key |
+| Command | Description | User-visible? |
+|---------|-------------|--------------|
+| `recipes` | List video templates | Yes — "有哪些模板" |
+| `last-job` | Latest job status | Yes — "上次视频怎样了" |
+| `history` | Job history (last 50) | Yes — "我的历史记录" |
+| `config` | Show current configuration | No |
+| `config-init --api-key "mk_..."` | Initialize API key | Only during setup |
+| `upload --url "URL"` | Upload from public URL | No (agent internal) |
+| `upload-file --file PATH` | Upload from local file | No (agent internal) |
+| `upload-file --url "URL"` | Download URL → upload | No (agent internal) |
+| `upload-file --telegram-file-id "..."` | Upload Telegram attachment | No (agent internal) |
+| `upload-file --feishu-image-key "..."` | Upload Feishu attachment | No (agent internal) |
+| `upload-status --job-id "..."` | Check upload job status | No (agent internal) |
+| `compose-status --task-id "..."` | Check compose task progress | No (agent internal) |
+| `render-status --job-id "..."` | Check render job progress | No (agent internal) |
 
 ## 7. Key Rules
 
