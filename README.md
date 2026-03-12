@@ -1,134 +1,128 @@
 # 🎬 Medeo Video Generator
 
-AI-powered video generation skill for [OpenClaw](https://github.com/openclaw/openclaw) — create videos from text prompts using the [Medeo](https://medeo.app) platform.
+Generate AI-powered videos from text. Tell your AI assistant "make me a video about XX" and it will automatically create the video using the [Medeo](https://medeo.app) platform, sending you the result in a few minutes.
 
 ---
 
-## What Is This?
+## Installation
 
-> Tell your AI assistant "make me a video about XX", and it will automatically generate the video using Medeo's AI platform, sending you the video link in a few minutes.
+### Option A: Install via OpenClaw (Recommended)
+
+Tell your AI assistant:
+
+```
+Install the medeo-video skill from https://github.com/one2x-ai/medeo-video-skill
+```
+
+### Option B: Manual Install
+
+```bash
+cd ~/.agents/skills/
+git clone https://github.com/one2x-ai/medeo-video-skill.git medeo-video
+openclaw gateway restart
+```
 
 ---
 
-## ✨ Features
+## Setup (One-Time)
 
-- **Text-to-Video** — Describe what you want, AI handles the rest
-- **Media Upload** — Provide images/video URLs as creative assets
-- **Recipe Templates** — Browse and use pre-built video styles
-- **Full Pipeline** — Upload → AI Compose → Render, fully automated
-- **Async Generation** — Runs in background, notifies you when done
-- **Job History** — Track past video generation jobs
+The first time you use the skill, your assistant will prompt you to set up an API key:
+
+1. Go to 👉 **https://medeo.app/dev/apikey**
+   - No account? The page will guide you through registration
+2. Copy your API key (starts with `mk_`)
+3. Send it to your assistant — it will handle the rest
+
+That's it. One-time setup, works forever.
 
 ---
 
-## 🚀 Quick Start (30 Seconds)
+## Usage
 
-### 1. Install the Skill
+### Text to Video
 
-Send this to your OpenClaw assistant:
-
-```
-Please install the medeo-video skill for video generation.
-GitHub link: https://github.com/one2x-ai/medeo-video-skill
-```
-
-### 2. Get Your API Key
-
-Your assistant will guide you to register and get an API key:
-
-1. Click the link your assistant sends you to sign up
-2. Get your API key (starts with `mk_`)
-3. Send the API key to your assistant — it will configure everything
-
-### 3. Start Making Videos!
-
-Just tell your assistant what video you want:
+Just describe what you want:
 
 ```
-Make me a video about the coffee brewing process, with a cozy atmosphere
+Make me a video about the coffee brewing process with a cozy vibe
 ```
+
+```
+Create a 30-second product launch video for new running shoes
+```
+
+### Image + Text to Video
+
+Send an image (or paste a URL) along with your description:
 
 ```
 Use this image to create a product promo video
-[image URL]
+[send your image]
 ```
 
 ```
-Make me a vertical short video of a sunset timelapse
+Make a video using this photo: https://example.com/photo.jpg
 ```
 
-Your assistant will generate the video in the background (usually 5-10 min) and send you the link when it's done.
+Your assistant will automatically upload your image and ensure the video uses your provided assets.
+
+### Vertical / Short-Form Video
+
+Want TikTok / Reels / Shorts format? Just say so:
+
+```
+Make a vertical short video of a sunset timelapse
+```
 
 ---
 
-## 📋 Usage Examples
+## What You Can Do
 
 | What You Say | What Happens |
 |-------------|-------------|
 | "Make me a XX video" | Full auto video generation |
-| "Make a video with these assets" + URLs | Upload assets + generate |
-| "What video templates are available?" | List available recipes |
-| "Is the last video done?" | Check recent job status |
-| "Make a vertical short video" | 9:16 portrait video |
+| "Use this image to make a video" + image | Uses your image as assets |
+| "Make it vertical" / "9:16" | Portrait short-form video |
+| "What video templates are available?" | Browse preset recipes |
+| "Is my last video done?" | Check recent job status |
+| "Show my video history" | View past generations |
 
 ---
 
-## 💰 Credits
+## FAQ
 
-- Video generation costs Medeo platform credits
-- If credits run out, your assistant will prompt you to top up
-- After recharging, just say "credits topped up, retry" to continue
+### How long does generation take?
 
----
+Typically 5–15 minutes. Complex scripts may take longer. Generation runs in the background — your assistant will send you the video when it's ready.
 
-## ⚙️ Advanced Usage
+### What image/video formats are supported?
 
-### Specify Video Parameters
+`.jpg`, `.png`, `.webp`, `.mp4`, `.mov`, `.gif`
 
-```
-Make a 30-second vertical video using the recipe_01... template
-```
+### What if I run out of credits?
 
-### Upload Assets Only
+Your assistant will let you know and provide a link to top up. After recharging, just say "credits topped up, please retry."
 
-```
-Upload this image to Medeo: [image URL]
-```
+### Which chat platforms are supported?
 
-### View History
-
-```
-Show me my recent videos
-```
+All platforms supported by OpenClaw: Feishu, Telegram, Discord, WhatsApp, Signal, and more. The video will be delivered directly to your chat.
 
 ---
 
-## 🔧 Requirements
+## Technical Details
 
-- Python 3.6+
-- `requests` library (auto-installed by assistant)
-
----
-
-## 📁 Data Storage
-
-All data is stored under `~/.openclaw/workspace/medeo-video/`:
-
-| File | Purpose |
-|------|---------|
-| `config.json` | API key configuration |
-| `last_job.json` | Latest video job record |
-| `history/` | Historical job records (auto-keeps latest 50) |
+- **Requirements**: Python 3.6+ with `requests` library (`pip install requests`)
+- **Data Storage**: `~/.openclaw/workspace/medeo-video/` (config + job history)
+- **API Docs**: https://docs.prd.medeo.app/
 
 ---
 
-## 🔗 Links
+## Links
 
 - [Medeo Platform](https://medeo.app)
-- [API Documentation](https://docs.prd.medeo.app/)
+- [OpenClaw](https://github.com/openclaw/openclaw)
+- [ClawhHub Skill Marketplace](https://clawhub.com)
 
 ---
-
-## 📄 License
 
 MIT License

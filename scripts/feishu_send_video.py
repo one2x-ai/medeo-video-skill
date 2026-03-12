@@ -43,7 +43,7 @@ def get_feishu_credentials():
     accounts = feishu.get("accounts", {})
     # Try accounts.main first, then top-level
     if accounts:
-        main_acct = accounts.get("main", {})
+        main_acct = accounts.get("main", accounts.get("default", list(accounts.values())[0] if accounts else {}))
         app_id = main_acct.get("appId", "")
         app_secret = main_acct.get("appSecret", "")
     else:
@@ -120,6 +120,12 @@ def send_media_message(token, to, file_key, image_key=None):
     content = {"file_key": file_key}
     if image_key:
         content["image_key"] = image_key
+
+    # Strip common prefixes from OpenClaw inbound metadata (e.g. "chat:oc_xxx" → "oc_xxx")
+    if to.startswith("chat:"):
+        to = to[len("chat:"):]
+    elif to.startswith("user:"):
+        to = to[len("user:"):]
 
     # Determine receive_id_type based on prefix
     if to.startswith("oc_"):
