@@ -78,7 +78,8 @@ python3 {baseDir}/scripts/medeo_video.py spawn-task \
   --duration-ms 30000 \                          # optional: target duration ms
   --voice-id "voice_01..." \                     # optional: voice for narration
   --video-style-id "style_01..." \               # optional: visual style template
-  --asset-sources ai_images my_uploaded_assets   # optional: restrict asset sources
+  --asset-sources ai_images my_uploaded_assets \ # optional: restrict asset sources
+  --no-render                                    # optional: stop after compose (skip render)
 ```
 
 ### Asset Sources (`--asset-sources`)
@@ -118,7 +119,10 @@ Step 3: Tell user it's generating. Sub-agent auto-announces when done.
 ### 3a. From URL (image already has a public URL)
 
 ```bash
-python3 {baseDir}/scripts/medeo_video.py upload --url "https://example.com/photo.jpg"
+python3 {baseDir}/scripts/medeo_video.py upload \
+  --url "https://example.com/photo.jpg" \
+  --project-id "project_01..."          # optional: associate media with existing project
+  --no-wait                             # optional: return job_id immediately without polling
 ```
 
 ### 3b. From IM attachment (user sends image directly) ← NEW
@@ -181,7 +185,95 @@ python3 {baseDir}/scripts/medeo_video.py spawn-task \
 
 Supports `.jpg`, `.png`, `.webp`, `.mp4`, `.mov`, `.gif`. Higher resolution + multiple angles = better results.
 
-## 4. Browse Recipes
+### 3d. Check Upload Status
+
+After `upload` or `upload-file`, if you need to check the upload job:
+
+```bash
+python3 {baseDir}/scripts/medeo_video.py upload-status --job-id "job_01..."
+```
+
+Returns media status (`processing`, `completed`, `failed`) and `media_id` once done.
+
+## 4. Low-Level Pipeline Commands (Advanced)
+
+> Most users should use `spawn-task` (Section 2), which handles the full pipeline automatically. These commands are for debugging or manual control.
+
+### 4a. Generate (compose + render pipeline)
+
+Runs the full pipeline: upload media → compose → render → poll until done.
+
+```bash
+python3 {baseDir}/scripts/medeo_video.py generate \
+  --message "your video description" \
+  --media-urls "https://example.com/photo.jpg" \   # optional: reference images
+  --media-ids "media_01..." \                       # optional: pre-uploaded media
+  --recipe-id "recipe_01..." \                      # optional: template
+  --aspect-ratio "16:9" \                           # optional: 16:9 (default) or 9:16
+  --duration-ms 30000 \                             # optional: target duration ms
+  --voice-id "voice_01..." \                        # optional: narration voice
+  --video-style-id "style_01..." \                  # optional: visual style
+  --asset-sources ai_images my_uploaded_assets \    # optional: restrict asset sources
+  --no-render                                       # optional: stop after compose (skip render)
+```
+
+**Note:** `generate` is synchronous and blocks until completion (can take 15+ min). For production use, prefer `spawn-task` + `sessions_spawn` which runs async.
+
+### 4b. Compose (create project only)
+
+Sends the message to Medeo's AI agent to create the video project (storyboard, scenes, assets). Does NOT render.
+
+```bash
+python3 {baseDir}/scripts/medeo_video.py compose \
+  --message "your video description" \
+  --media-ids "media_01..." \
+  --recipe-id "recipe_01..." \
+  --aspect-ratio "16:9" \
+  --duration-ms 30000 \
+  --voice-id "voice_01..." \
+  --video-style-id "style_01..." \
+  --asset-sources ai_images
+```
+
+Returns `task_id` and `project_id`. Use `compose-status` to poll.
+
+### 4c. Check Compose Status
+
+```bash
+python3 {baseDir}/scripts/medeo_video.py compose-status --task-id "task_01..."
+```
+
+Returns task state (`pending`, `running`, `completed`, `failed`) and `project_id` when done.
+
+### 4d. Render (export video from composed project)
+
+Triggers video rendering on an existing project:
+
+```bash
+python3 {baseDir}/scripts/medeo_video.py render --project-id "project_01..."
+```
+
+Returns `render_job_id`. Use `render-status` to poll.
+
+### 4e. Check Render Status
+
+```bash
+python3 {baseDir}/scripts/medeo_video.py render-status --job-id "render_job_01..."
+```
+
+Returns render state and `video_url` / `thumbnail_url` when complete.
+
+### Pipeline Flow Diagram
+
+```
+spawn-task (recommended)
+    └── generate (blocking)
+            ├── upload (if --media-urls provided)
+            ├── compose → compose-status (poll)
+            └── render → render-status (poll)
+```
+
+## 5. Browse Recipes
 
 ```bash
 python3 {baseDir}/scripts/medeo_video.py recipes              # list templates
@@ -190,21 +282,30 @@ python3 {baseDir}/scripts/medeo_video.py recipes --cursor <c>  # paginate
 
 Use in generation: `--recipe-id "recipe_01..."`. See [docs/recipes.md](docs/recipes.md).
 
-## 5. Quick Commands (no spawn needed)
+## 6. Quick Commands (no spawn needed)
 
 | Command | Description |
 |---------|-------------|
-| `recipes` | List video templates |
+| **Upload** | |
 | `upload --url "URL"` | Upload from public URL (server-side fetch) |
 | `upload-file --file /tmp/photo.jpg` | Upload from local file |
 | `upload-file --url "https://..."` | Download URL → upload (for URLs that block server-side fetch) |
 | `upload-file --telegram-file-id "..." --telegram-bot-token "$TOKEN"` | Upload Telegram image attachment |
 | `upload-file --feishu-image-key "img_v3_..." --feishu-message-id "om_..."` | Upload Feishu image attachment |
+| `upload-status --job-id "job_01..."` | Check upload job status |
+| **Browse** | |
+| `recipes` | List video templates |
+| `recipes --limit 20 --starting-after "recipe_01..."` | Paginate recipes |
+| **Status & History** | |
+| `compose-status --task-id "task_01..."` | Check compose task progress |
+| `render-status --job-id "render_01..."` | Check render job progress |
 | `last-job` | Latest job status |
-| `history` | Job history |
-| `config` | Current configuration |
+| `history` | Job history (last 50) |
+| **Config** | |
+| `config` | Show current configuration |
+| `config-init --api-key "mk_..."` | Initialize API key |
 
-## 6. Key Rules
+## 7. Key Rules
 
 1. **Always async** — `spawn-task` + `sessions_spawn` for generation
 2. **One call for stories** — full storylines in one `--message`, never split
@@ -220,7 +321,7 @@ Use in generation: `--recipe-id "recipe_01..."`. See [docs/recipes.md](docs/reci
    - **Security**: Never pass bot tokens as CLI args (visible in `ps`). Always use env vars: `TELEGRAM_BOT_TOKEN`, `DISCORD_BOT_TOKEN`.
 6. **Timeline completion** — Medeo's backend is an AI agent. Generated images/videos must be added to the Timeline to trigger task completion and rendering. Always append to your prompt: "Add the generated video/image to the Timeline."
 
-## 7. Error Handling
+## 8. Error Handling
 
 | Error | Action |
 |-------|--------|
@@ -232,13 +333,13 @@ Use in generation: `--recipe-id "recipe_01..."`. See [docs/recipes.md](docs/reci
 | 401/403 | Key may be invalid or expired, ask user to regenerate |
 | Upload 404 | Some image hosts block server-side fetch; use `upload-file --url` to download first |
 
-## 8. Reference Docs
+## 9. Reference Docs
 
 - [docs/recipes.md](docs/recipes.md) — Full recipe browsing and pagination
 - [docs/assets-upload.md](docs/assets-upload.md) — All upload paths (URL, local file, IM attachments), platform-specific guides, `upload` vs `upload-file` comparison
 - [docs/feishu-send.md](docs/feishu-send.md) — Sending generated video via Feishu (cover image, duration, compression)
 - [docs/multi-platform.md](docs/multi-platform.md) — Multi-platform video delivery (Feishu, Telegram, Discord, WhatsApp)
 
-## 9. Data Storage
+## 10. Data Storage
 
 All data in `~/.openclaw/workspace/medeo-video/`: `config.json` (API key), `last_job.json` (latest job), `history/` (last 50 jobs).
