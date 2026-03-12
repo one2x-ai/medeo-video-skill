@@ -43,7 +43,7 @@ def get_feishu_credentials():
     accounts = feishu.get("accounts", {})
     # Try accounts.main first, then top-level
     if accounts:
-        main_acct = accounts.get("main", {})
+        main_acct = accounts.get("main", accounts.get("default", list(accounts.values())[0] if accounts else {}))
         app_id = main_acct.get("appId", "")
         app_secret = main_acct.get("appSecret", "")
     else:

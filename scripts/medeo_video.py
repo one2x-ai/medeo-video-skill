@@ -361,7 +361,7 @@ def _api_post(base_url: str, path: str, api_key: str,
               body: dict, idempotency_key: Optional[str] = None) -> dict:
     """POST request to Medeo API with retry."""
     url = f"{base_url}{path}"
-    idem_key = idempotency_key or str(uuid.uuid4())
+    idem_key = idempotency_key  # May be None; see _headers()
     last_err = None
 
     for attempt in range(MAX_RETRIES + 1):
@@ -474,39 +474,13 @@ def api_create_from_upload(config: dict,
     if project_id:
         body["project_id"] = project_id
 
-    headers: Dict[str, str] = {}
-    if idempotency_key:
-        headers["Idempotency-Key"] = idempotency_key
-
-    # _api_post doesn't support extra headers, use _api_request directly
-    base_url = config["baseUrl"]
-    api_key = config["apiKey"]
-    url = f"{base_url}/api/v2/medias:create_from_upload"
-
-    last_err = None
-    for attempt in range(MAX_RETRIES + 1):
-        try:
-            resp = requests.post(
-                url,
-                json=body,
-                headers={
-                    "Authorization": f"Bearer {api_key}",
-                    "Content-Type": "application/json",
-                    **headers,
-                },
-                timeout=(CONNECT_TIMEOUT, READ_TIMEOUT),
-            )
-            if resp.status_code >= 400:
-                err = _parse_error_response(resp)
-                raise err
-            return resp.json()
-        except MedeoApiError:
-            raise
-        except requests.RequestException as e:
-            last_err = MedeoApiError(message=f"Network error: {e}", case="network_error")
-        if attempt < MAX_RETRIES:
-            time.sleep(2 ** attempt)
-    raise last_err or MedeoApiError("Unknown error after retries")
+    return _api_post(
+        config["baseUrl"],
+        "/api/v2/medias:create_from_upload",
+        config["apiKey"],
+        body,
+        idempotency_key=idempotency_key,
+    )
 
 
 def api_initiate_video_creation(config: dict, message_text: str,
@@ -583,7 +557,15 @@ def poll_media_upload(config: dict, job_id: str,
 
     for attempt in range(1, UPLOAD_MAX_ATTEMPTS + 1):
         time.sleep(interval)
-        result = api_get_media_job_status(config, job_id)
+        try:
+            result = api_get_media_job_status(config, job_id)
+        except MedeoApiError as e:
+            # 404 = job not yet visible in DB; retry instead of aborting
+            if getattr(e, "status_code", None) == 404 and attempt <= 5:
+                _log(f"{label}: attempt {attempt}, job not found yet (404), retrying...")
+                interval = min(interval * POLL_BACKOFF_FACTOR, POLL_MAX_INTERVAL)
+                continue
+            raise
         state = result.get("state", "")
         elapsed = time.time() - start
 
@@ -769,7 +751,8 @@ def build_spawn_task(message, media_urls=None, media_ids=None,
                      recipe_id=None, duration_ms=None,
                      aspect_ratio=None, voice_id=None,
                      video_style_id=None, asset_sources=None,
-                     no_render=False, script_path=None):
+                     no_render=False, script_path=None,
+                     deliver_to=None, deliver_channel=None):
     """Build a sessions_spawn payload for async video generation.
 
     Returns a dict with 'sessions_spawn_args' ready to pass to the
@@ -807,6 +790,58 @@ def build_spawn_task(message, media_urls=None, media_ids=None,
 
     cmd_str = " ".join(cmd_parts)
 
+    # Determine delivery target and channel for the task template
+    deliver_to_str = deliver_to or "<user_id>"
+    deliver_channel_str = deliver_channel or "feishu"
+    base_dir = str(Path(__file__).resolve().parent.parent)
+
+    # Build channel-specific delivery instructions
+    if deliver_channel_str == "feishu":
+        delivery_instructions = (
+            "  2. **Deliver the video via Feishu:**\n"
+            "     Download the video locally, then send via feishu_send_video.py:\n"
+            "     ```\n"
+            "     curl -sL -o /tmp/medeo_result.mp4 \"<video_url>\"\n"
+            "     python3 {base_dir}/scripts/feishu_send_video.py "
+            "--video /tmp/medeo_result.mp4 --to \"{deliver_to}\" "
+            "--cover-url \"<thumbnail_url>\" "
+            "--duration <duration_ms>\n"
+            "     ```\n"
+            "     Note: --to accepts both ou_xxx (private chat) and "
+            "oc_xxx (group chat). Use exactly the value shown above."
+        ).format(base_dir=base_dir, deliver_to=deliver_to_str)
+    elif deliver_channel_str == "telegram":
+        delivery_instructions = (
+            "  2. **Deliver the video via Telegram:**\n"
+            "     ```\n"
+            "     curl -sL -o /tmp/medeo_result.mp4 \"<video_url>\"\n"
+            "     TELEGRAM_BOT_TOKEN=$TELEGRAM_BOT_TOKEN "
+            "python3 {base_dir}/scripts/telegram_send_video.py "
+            "--video /tmp/medeo_result.mp4 --to \"{deliver_to}\" "
+            "--cover-url \"<thumbnail_url>\" "
+            "--duration <duration_seconds> "
+            "--caption \"🎬 Video ready!\"\n"
+            "     ```"
+        ).format(base_dir=base_dir, deliver_to=deliver_to_str)
+    elif deliver_channel_str == "discord":
+        delivery_instructions = (
+            "  2. **Deliver the video via Discord:**\n"
+            "     ```\n"
+            "     curl -sL -o /tmp/medeo_result.mp4 \"<video_url>\"\n"
+            "     python3 {base_dir}/scripts/discord_send_video.py "
+            "--video /tmp/medeo_result.mp4 --channel-id \"{deliver_to}\" "
+            "--caption \"🎬 Video ready!\"\n"
+            "     ```\n"
+            "     (25 MB limit; for larger files share video_url as link)"
+        ).format(base_dir=base_dir, deliver_to=deliver_to_str)
+    else:
+        delivery_instructions = (
+            "  2. **Deliver the video:** Use the `message` tool with "
+            "`media` parameter to send the video to \"{deliver_to}\", "
+            "or share the video_url as a link if native sending is "
+            "unavailable."
+        ).format(deliver_to=deliver_to_str)
+
     task_text = (
         "You are a video generation worker. Execute the following command "
         "and report the result back to the user.\n\n"
@@ -821,22 +856,7 @@ def build_spawn_task(message, media_urls=None, media_ids=None,
         "- If the JSON output contains \"status\": \"completed\":\n"
         "  1. Extract \"video_url\", \"thumbnail_url\", and "
         "\"total_duration_seconds\" from the JSON output.\n"
-        "  2. **Deliver the video using the best method for the current "
-        "IM channel:**\n"
-        "     - **Feishu**: Download the video locally, then send via feishu_send_video.py "
-        "with cover image and duration:\n"
-        "       ```\n"
-        "       curl -sL -o /tmp/medeo_result.mp4 \"<video_url>\"\n"
-        "       python3 {base_dir}/scripts/feishu_send_video.py "
-        "--video /tmp/medeo_result.mp4 --to \"<user_id>\" "
-        "--cover-url \"<thumbnail_url>\" "
-        "--duration <duration_ms>\n"
-        "       ```\n"
-        "     - **Other channels**: Use the channel's native method to send "
-        "the video file directly (e.g. Telegram sendVideo, Discord file "
-        "upload, WhatsApp media message). Download the video first, "
-        "then send via the channel's API. Only fall back to sharing "
-        "the video_url as a link if native file sending is unavailable.\n"
+        "{delivery_instructions}\n"
         "  3. Always include a short text summary: prompt used, "
         "duration, resolution.\n"
         "- If the error indicates insufficient credits (积分不足 / "
@@ -846,7 +866,7 @@ def build_spawn_task(message, media_urls=None, media_ids=None,
         "- For other failures, announce the error message and suggest the "
         "user try again or adjust their prompt."
     ).format(cmd=cmd_str, topup_url=MEDEO_TOPUP_URL,
-             base_dir=str(Path(__file__).resolve().parent.parent))
+             delivery_instructions=delivery_instructions)
 
     label = message[:60] + "..." if len(message) > 60 else message
 
@@ -879,6 +899,8 @@ def cmd_spawn_task(args, config):
         video_style_id=getattr(args, "video_style_id", None),
         asset_sources=getattr(args, "asset_sources", None),
         no_render=getattr(args, "no_render", False),
+        deliver_to=getattr(args, "deliver_to", None),
+        deliver_channel=getattr(args, "deliver_channel", None),
     )
     print(json.dumps(result, indent=2, ensure_ascii=False))
 
@@ -998,7 +1020,9 @@ def _upload_file_bytes(config: dict, file_bytes: bytes, filename: str,
     _log("File uploaded to S3 successfully")
 
     # Step 3: register with Medeo (create_from_upload)
-    idempotency_key = str(uuid.uuid4())
+    # NOTE: Do NOT pass Idempotency-Key here — the prd API has a bug where
+    # jobs created with an idempotency key are never visible to the poll
+    # endpoint (create_medias_job returns 404 forever).  Discovered 2026-03-11.
     create_resp = api_create_from_upload(
         config,
         uploaded_fileinfo_list=[{
@@ -1010,7 +1034,6 @@ def _upload_file_bytes(config: dict, file_bytes: bytes, filename: str,
             },
         }],
         project_id=project_id,
-        idempotency_key=idempotency_key,
     )
 
     jobs = create_resp.get("jobs", [])
@@ -1617,6 +1640,11 @@ def build_parser() -> argparse.ArgumentParser:
                          help="Pre-uploaded media IDs")
     p_spawn.add_argument("--no-render", action="store_true",
                          help="Stop after compose (don't render)")
+    p_spawn.add_argument("--deliver-to",
+                         help="Delivery target: ou_xxx (private chat) or oc_xxx (group chat) for Feishu, "
+                              "chat_id for Telegram, channel_id for Discord")
+    p_spawn.add_argument("--deliver-channel", default=None,
+                         help="Delivery channel: feishu, telegram, discord, etc.")
     _add_settings_args(p_spawn)
 
     # --- last-job ---

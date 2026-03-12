@@ -69,12 +69,30 @@ If no API Key is configured, the script outputs `"setup_required": true`.
 # Step 1: Build the task
 python3 {baseDir}/scripts/medeo_video.py spawn-task \
   --message "your video description or full screenplay" \
+  --deliver-to "oc_xxx_or_ou_xxx" \              # REQUIRED: delivery target (see below)
+  --deliver-channel "feishu" \                   # REQUIRED: feishu|telegram|discord|other
   --media-ids "media_01..." \                    # optional: pre-uploaded media IDs
   --media-urls "https://example.com/ref.jpg" \   # optional: URLs (auto-uploaded inline)
   --recipe-id "recipe_01..." \                   # optional: use a template
   --aspect-ratio "9:16" \                        # optional: default 16:9
   --duration-ms 30000                            # optional: target duration ms
 ```
+
+### Delivery Target (`--deliver-to`)
+
+**This is critical** — determines where the generated video gets sent.
+
+| Context | `--deliver-to` value | Example |
+|---------|---------------------|---------|
+| **Feishu group chat** | The group's `chat_id` (starts with `oc_`) from inbound metadata `conversation_label` or `chat_id` | `oc_158fd3e54407cbe170697c6c954bd4f2` |
+| **Feishu private chat** | The user's `open_id` (starts with `ou_`) from inbound metadata `sender_id` | `ou_f7f458f4d7b4ff49ec1b8de22a1e3206` |
+| **Telegram** | The `chat_id` from the inbound message context | `-1001234567890` |
+| **Discord** | The `channel_id` from the inbound message context | `1234567890123456` |
+
+**How to determine group vs private on Feishu:**
+- Check `is_group_chat` in the inbound metadata
+- If `true` → use `conversation_label` / `chat_id` (the `oc_` value)
+- If `false` → use `sender_id` (the `ou_` value)
 
 Step 2: Use `sessions_spawn` with the returned args (`label: "medeo: <brief>"`, `runTimeoutSeconds: 2400`).
 Step 3: Tell user it's generating. Sub-agent auto-announces when done.
@@ -174,7 +192,7 @@ Use in generation: `--recipe-id "recipe_01..."`. See [docs/recipes.md](docs/reci
 3. **Insufficient credits** — share recharge link from error output
 4. **IM image upload** — Only upload images when the user explicitly asks for video generation with that image. Do NOT auto-upload every image message (user may have other skills installed). When triggered: run `upload-file` first → get `media_id` → pass to generation via `--media-ids`. Never ask the user for a URL if they already sent the image.
 5. **IM-native delivery** — After generation, deliver the video using the IM channel's native method (not just a URL). Each channel has a dedicated delivery script:
-   - **Feishu**: `python3 {baseDir}/scripts/feishu_send_video.py --video /tmp/result.mp4 --to "ou_xxx" --cover-url "<thumbnail_url>" --duration <ms>`
+   - **Feishu**: `python3 {baseDir}/scripts/feishu_send_video.py --video /tmp/result.mp4 --to "oc_xxx_or_ou_xxx" --cover-url "<thumbnail_url>" --duration <ms>` (use `oc_` chat_id for group chats, `ou_` open_id for private chats)
    - **Telegram**: `TELEGRAM_BOT_TOKEN=$TELEGRAM_BOT_TOKEN python3 {baseDir}/scripts/telegram_send_video.py --video /tmp/result.mp4 --to "<chat_id>" --cover-url "<thumbnail_url>" --duration <seconds> --caption "🎬 Video ready!"`
    - **Discord**: `python3 {baseDir}/scripts/discord_send_video.py --video /tmp/result.mp4 --channel-id "<channel_id>" --caption "🎬 Video ready!"` (25 MB limit; for larger files, share video_url as link)
    - **WhatsApp / Signal / Other**: Use the `message` tool with `media` parameter, or share `video_url` as a link if native sending is unavailable.
