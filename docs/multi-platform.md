@@ -8,7 +8,7 @@ After a video is generated, deliver it natively via the user's IM channel for th
 |----------|--------|----------|
 | Feishu | `scripts/feishu_send_video.py` | `--video`, `--to` (open_id), `--cover-url`, `--duration` (ms) |
 | Telegram | `scripts/telegram_send_video.py` | `--video`, `--to` (chat_id), `--cover-url`, `--duration` (seconds), `--caption` |
-| Discord | `scripts/discord_send_video.py` | `--video`, `--channel-id`, `--caption` |
+| Discord | OpenClaw `message` tool | `action="send"`, `channel="discord"`, `target`, `filePath` |
 
 ## Platform Notes
 
@@ -23,7 +23,8 @@ After a video is generated, deliver it natively via the user's IM channel for th
 - Max file size: 50 MB via Bot API.
 
 ### Discord
-- Pass bot token via env var: `DISCORD_BOT_TOKEN=$DISCORD_BOT_TOKEN python3 scripts/discord_send_video.py ...`
+- Use the OpenClaw `message` tool directly: `message(action="send", channel="discord", target="<channel_id>", message="🎬 Video ready!", filePath="/tmp/medeo_result.mp4")`
+- Download the video to a local path first via `curl -sL -o /tmp/medeo_result.mp4 "<video_url>"`.
 - Max file size: 25 MB (8 MB for non-Nitro servers). For larger files, share `video_url` as a link.
 
 ### WhatsApp / Signal / Other

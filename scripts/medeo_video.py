@@ -837,14 +837,16 @@ def build_spawn_task(message, media_urls=None, media_ids=None,
     elif deliver_channel_str == "discord":
         delivery_instructions = (
             "  2. **Deliver the video via Discord:**\n"
+            "     Download the video first:\n"
             "     ```\n"
             "     curl -sL -o /tmp/medeo_result.mp4 \"<video_url>\"\n"
-            "     python3 {base_dir}/scripts/discord_send_video.py "
-            "--video /tmp/medeo_result.mp4 --channel-id \"{deliver_to}\" "
-            "--caption \"🎬 Video ready!\"\n"
             "     ```\n"
+            "     Then use the `message` tool:\n"
+            "     `message(action=\"send\", channel=\"discord\", "
+            "target=\"{deliver_to}\", message=\"🎬 Video ready!\", "
+            "filePath=\"/tmp/medeo_result.mp4\")`\n"
             "     (25 MB limit; for larger files share video_url as link)"
-        ).format(base_dir=base_dir, deliver_to=deliver_to_str)
+        ).format(deliver_to=deliver_to_str)
     else:
         delivery_instructions = (
             "  2. **Deliver the video:** Use the `message` tool with "
