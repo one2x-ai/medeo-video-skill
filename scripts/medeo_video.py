@@ -74,6 +74,17 @@ RENDER_MAX_ATTEMPTS = 360     # ~30 min
 VALID_ASSET_SOURCES = ["ai_images", "ai_videos", "my_uploaded_assets", "stock_videos"]
 VALID_ASPECT_RATIOS = ["16:9", "9:16"]
 
+# Upload safety limits
+MAX_UPLOAD_SIZE = 100 * 1024 * 1024   # 100 MB
+ALLOWED_URL_SCHEMES = ("http://", "https://")
+
+# Supported file extensions → MIME type mapping
+CONTENT_TYPE_MAP = {
+    "jpg": "image/jpeg", "jpeg": "image/jpeg",
+    "png": "image/png", "webp": "image/webp", "gif": "image/gif",
+    "mp4": "video/mp4", "mov": "video/quicktime", "avi": "video/x-msvideo",
+}
+
 # Sessions Spawn defaults
 SPAWN_TIMEOUT_SECONDS = 2400  # 40 minutes
 
@@ -999,12 +1010,7 @@ def _upload_file_bytes(config: dict, file_bytes: bytes, filename: str,
     _log(f"Got presigned URL, storage_key={storage_key}")
 
     # Step 2: PUT file bytes directly to S3
-    _CONTENT_TYPE_MAP = {
-        "jpg": "image/jpeg", "jpeg": "image/jpeg",
-        "png": "image/png", "webp": "image/webp", "gif": "image/gif",
-        "mp4": "video/mp4", "mov": "video/quicktime", "avi": "video/x-msvideo",
-    }
-    content_type = _CONTENT_TYPE_MAP.get(ext, f"application/octet-stream")
+    content_type = CONTENT_TYPE_MAP.get(ext, f"application/octet-stream")
     put_resp = requests.put(
         presigned_url,
         data=file_bytes,
@@ -1078,13 +1084,32 @@ def cmd_upload_file(args, config: dict):
         if not path.exists():
             print(json.dumps({"error": f"File not found: {args.file}"}), file=sys.stderr)
             sys.exit(1)
+        extension = path.suffix.lstrip(".").lower() or ""
+        if extension not in CONTENT_TYPE_MAP:
+            print(json.dumps({
+                "error": f"Unsupported file type: .{extension}",
+                "hint": f"Supported formats: {', '.join('.' + k for k in CONTENT_TYPE_MAP)}",
+            }), file=sys.stderr)
+            sys.exit(1)
+        file_size = path.stat().st_size
+        if file_size > MAX_UPLOAD_SIZE:
+            print(json.dumps({
+                "error": f"File too large: {file_size / 1024 / 1024:.1f} MB (max {MAX_UPLOAD_SIZE // 1024 // 1024} MB)",
+                "hint": "Try compressing the file or using a smaller image.",
+            }), file=sys.stderr)
+            sys.exit(1)
         file_bytes = path.read_bytes()
         filename = path.name
-        extension = path.suffix.lstrip(".").lower() or "jpg"
         _log(f"Reading local file: {path} ({len(file_bytes)} bytes)")
 
     # --- Source: direct URL (download first) ---
     elif args.url:
+        if not any(args.url.startswith(s) for s in ALLOWED_URL_SCHEMES):
+            print(json.dumps({
+                "error": f"Invalid URL scheme. Only http:// and https:// are allowed.",
+                "hint": "Provide a public HTTP(S) URL to the image or video.",
+            }), file=sys.stderr)
+            sys.exit(1)
         _log(f"Downloading from URL: {args.url}")
         r = requests.get(args.url, timeout=(CONNECT_TIMEOUT, 60))
         if r.status_code != 200:
@@ -1092,6 +1117,12 @@ def cmd_upload_file(args, config: dict):
                   file=sys.stderr)
             sys.exit(1)
         file_bytes = r.content
+        if len(file_bytes) > MAX_UPLOAD_SIZE:
+            print(json.dumps({
+                "error": f"Downloaded file too large: {len(file_bytes) / 1024 / 1024:.1f} MB (max {MAX_UPLOAD_SIZE // 1024 // 1024} MB)",
+                "hint": "Try a smaller image or video.",
+            }), file=sys.stderr)
+            sys.exit(1)
         # Try to infer extension from URL or Content-Type
         url_path = args.url.split("?")[0]
         ext_from_url = url_path.rsplit(".", 1)[-1].lower() if "." in url_path else ""

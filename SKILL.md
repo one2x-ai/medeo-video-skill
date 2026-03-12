@@ -73,6 +73,10 @@ Users only need to know **3 ways** to generate a video:
 
 The agent handles everything else silently.
 
+> **IMPORTANT**: Before spawning the generation task, **immediately reply to the user** with an acknowledgment like:
+> "🎬 Starting video generation — I'll send you the result in about 5–10 minutes."
+> Do NOT wait in silence. The user should know their request was received.
+
 ### Usage 1: Text only
 
 ```bash
@@ -281,7 +285,7 @@ Use in generation: `--recipe-id "recipe_01..."`. See [docs/recipes.md](docs/reci
 5. **IM-native delivery** — After generation, deliver the video using the IM channel's native method (not just a URL). Each channel has a dedicated delivery script:
    - **Feishu**: `python3 {baseDir}/scripts/feishu_send_video.py --video /tmp/result.mp4 --to "oc_xxx_or_ou_xxx" --cover-url "<thumbnail_url>" --duration <ms>` (use `oc_` chat_id for group chats, `ou_` open_id for private chats; `chat:oc_xxx` and `user:ou_xxx` prefixed forms are also accepted)
    - **Telegram**: `TELEGRAM_BOT_TOKEN=$TELEGRAM_BOT_TOKEN python3 {baseDir}/scripts/telegram_send_video.py --video /tmp/result.mp4 --to "<chat_id>" --cover-url "<thumbnail_url>" --duration <seconds> --caption "🎬 Video ready!"`
-   - **Discord**: `python3 {baseDir}/scripts/discord_send_video.py --video /tmp/result.mp4 --channel-id "<channel_id>" --caption "🎬 Video ready!"` (25 MB limit; for larger files, share video_url as link)
+   - **Discord**: Use the `message` tool directly — download the video to `/tmp/result.mp4` via `curl -sL -o /tmp/result.mp4 "<video_url>"`, then call `message(action="send", channel="discord", target="<channel_id>", message="🎬 Video ready!", filePath="/tmp/result.mp4")`. For files >25 MB, send `video_url` as a plain link instead.
    - **WhatsApp / Signal / Other**: Use the `message` tool with `media` parameter, or share `video_url` as a link if native sending is unavailable.
    - **Cover image URL**: The generate output JSON includes `thumbnail_url` — the API always returns this field. Constructed as `{ossBaseUrl}/{thumbnail_relative_path}` (e.g. `https://oss.prd.medeo.app/assets/medias/media_xxx.png`).
    - **Video URL**: Same pattern — `{ossBaseUrl}/{video_relative_path}` (e.g. `https://oss.prd.medeo.app/exported_video/v_xxx`).

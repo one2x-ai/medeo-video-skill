@@ -111,7 +111,7 @@ All platforms supported by OpenClaw: Feishu, Telegram, Discord, WhatsApp, Signal
 
 ## Technical Details
 
-- **Requirements**: Python 3.6+ (stdlib only — no pip installs needed)
+- **Requirements**: Python 3.6+ with `requests` library (`pip install requests`)
 - **Data Storage**: `~/.openclaw/workspace/medeo-video/` (config + job history)
 - **API Docs**: https://docs.prd.medeo.app/
 
