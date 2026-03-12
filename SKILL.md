@@ -34,8 +34,8 @@ token = json.loads(urllib.request.urlopen(urllib.request.Request(
 )).read())["tenant_access_token"]
 card = {
     "config": {"wide_screen_mode": True},
-    "header": {"title": {"tag": "plain_text", "content": "🎬 生成视频 — 需要先配置 API Key"}, "template": "blue"},
-    "elements": [{"tag": "div", "text": {"tag": "lark_md", "content": "需要你的 **Medeo API Key** 才能生成视频。\n\n**获取步骤：**\n1. 访问 https://medeo.app/dev/apikey\n   - 没有账号会自动引导注册，登录后直接显示 API Key\n2. 复制 `mk_` 开头的 key，回复给我\n\n拿到 key 之后我帮你一键配置好。"}}],
+    "header": {"title": {"tag": "plain_text", "content": "🎬 Video Generation — API Key Required"}, "template": "blue"},
+    "elements": [{"tag": "div", "text": {"tag": "lark_md", "content": "You need a **Medeo API Key** to generate videos.\n\n**Steps:**\n1. Go to https://medeo.app/dev/apikey\n   - No account? You'll be guided to sign up. The key appears after login.\n2. Copy the key (starts with `mk_`) and send it back to me.\n\nOnce I have it, I'll configure everything for you."}}],
 }
 urllib.request.urlopen(urllib.request.Request(
     "https://open.feishu.cn/open-apis/im/v1/messages?receive_id_type=open_id",
@@ -44,15 +44,15 @@ urllib.request.urlopen(urllib.request.Request(
 ))
 ```
 
-**Telegram / Discord / 其他渠道** — 用 `message` tool 发普通文本（这些渠道支持 markdown，无需绕过）：
+**Telegram / Discord / Other channels** — send plain text via `message` tool (these channels support markdown natively):
 ```
-🎬 生成视频需要先配置 Medeo API Key
+🎬 Video Generation — API Key Required
 
-步骤：
-1. 访问 https://medeo.app/dev/apikey（没有账号会引导注册，登录后显示 API Key）
-2. 复制 mk_ 开头的 key，回复给我
+Steps:
+1. Go to https://medeo.app/dev/apikey (sign up if needed — the key appears after login)
+2. Copy the key (starts with mk_) and send it back to me
 
-拿到 key 之后我帮你一键配置好。
+Once I have it, I'll configure everything for you.
 ```
 
 Once they provide the key: `python3 {baseDir}/scripts/medeo_video.py config-init --api-key "mk_..."`
@@ -67,9 +67,9 @@ If no API Key is configured, the script outputs `"setup_required": true`.
 
 Users only need to know **3 ways** to generate a video:
 
-1. **发文字** → 生成视频
-2. **发文字 + 上传图片** → 用图片素材生成视频
-3. **发文字 + 图片 URL** → 用 URL 图片生成视频
+1. **Send text** → generate video
+2. **Send text + upload image** → generate video using their image
+3. **Send text + image URL** → generate video using the URL image
 
 The agent handles everything else silently.
 
@@ -77,7 +77,7 @@ The agent handles everything else silently.
 
 ```bash
 python3 {baseDir}/scripts/medeo_video.py spawn-task \
-  --message "用户的视频描述" \
+  --message "user's video description" \
   --deliver-to "oc_xxx" \
   --deliver-channel "feishu"
 ```
@@ -87,7 +87,7 @@ python3 {baseDir}/scripts/medeo_video.py spawn-task \
 ```bash
 # First: upload-file to get media_id (see Section 3)
 python3 {baseDir}/scripts/medeo_video.py spawn-task \
-  --message "用户的视频描述" \
+  --message "user's video description" \
   --media-ids "media_01..." \
   --asset-sources my_uploaded_assets \
   --deliver-to "oc_xxx" \
@@ -98,7 +98,7 @@ python3 {baseDir}/scripts/medeo_video.py spawn-task \
 
 ```bash
 python3 {baseDir}/scripts/medeo_video.py spawn-task \
-  --message "用户的视频描述" \
+  --message "user's video description" \
   --media-urls "https://example.com/photo.jpg" \
   --asset-sources my_uploaded_assets \
   --deliver-to "oc_xxx" \
@@ -156,7 +156,7 @@ python3 {baseDir}/scripts/medeo_video.py upload \
 Use `upload-file` when the user sends an image via Telegram, Discord, Feishu, or as a local file.
 This uses the direct upload API (prepare → S3 presigned PUT → register) instead of URL-based upload.
 
-**Trigger:** Only when the user **explicitly requests video generation** AND sends an image attachment in the same message (e.g. "帮我用这张图生成视频" / "make a video with this photo"). Do NOT auto-upload on every image message — other skills or conversations may involve images unrelated to video generation.
+**Trigger:** Only when the user **explicitly requests video generation** AND sends an image attachment in the same message (e.g. "make a video with this photo"). Do NOT auto-upload on every image message — other skills or conversations may involve images unrelated to video generation.
 
 ```bash
 # From local file (downloaded by OpenClaw from attachment)
@@ -258,9 +258,9 @@ Use in generation: `--recipe-id "recipe_01..."`. See [docs/recipes.md](docs/reci
 
 | Command | Description | User-visible? |
 |---------|-------------|--------------|
-| `recipes` | List video templates | Yes — "有哪些模板" |
-| `last-job` | Latest job status | Yes — "上次视频怎样了" |
-| `history` | Job history (last 50) | Yes — "我的历史记录" |
+| `recipes` | List video templates | Yes — "what templates are available?" |
+| `last-job` | Latest job status | Yes — "is my last video done?" |
+| `history` | Job history (last 50) | Yes — "show my video history" |
 | `config` | Show current configuration | No |
 | `config-init --api-key "mk_..."` | Initialize API key | Only during setup |
 | `upload --url "URL"` | Upload from public URL | No (agent internal) |

@@ -859,7 +859,7 @@ def build_spawn_task(message, media_urls=None, media_ids=None,
         "{delivery_instructions}\n"
         "  3. Always include a short text summary: prompt used, "
         "duration, resolution.\n"
-        "- If the error indicates insufficient credits (积分不足 / "
+        "- If the error indicates insufficient credits ("
         "insufficient balance / quota exceeded), inform the user that their "
         "Medeo credits have run out and guide them to top up at "
         "{topup_url} — once recharged, they can ask to retry.\n"
