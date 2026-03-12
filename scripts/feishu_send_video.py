@@ -121,6 +121,12 @@ def send_media_message(token, to, file_key, image_key=None):
     if image_key:
         content["image_key"] = image_key
 
+    # Strip common prefixes from OpenClaw inbound metadata (e.g. "chat:oc_xxx" → "oc_xxx")
+    if to.startswith("chat:"):
+        to = to[len("chat:"):]
+    elif to.startswith("user:"):
+        to = to[len("user:"):]
+
     # Determine receive_id_type based on prefix
     if to.startswith("oc_"):
         receive_id_type = "chat_id"

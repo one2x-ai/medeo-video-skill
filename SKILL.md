@@ -75,8 +75,24 @@ python3 {baseDir}/scripts/medeo_video.py spawn-task \
   --media-urls "https://example.com/ref.jpg" \   # optional: URLs (auto-uploaded inline)
   --recipe-id "recipe_01..." \                   # optional: use a template
   --aspect-ratio "9:16" \                        # optional: default 16:9
-  --duration-ms 30000                            # optional: target duration ms
+  --duration-ms 30000 \                          # optional: target duration ms
+  --voice-id "voice_01..." \                     # optional: voice for narration
+  --video-style-id "style_01..." \               # optional: visual style template
+  --asset-sources ai_images my_uploaded_assets   # optional: restrict asset sources
 ```
+
+### Asset Sources (`--asset-sources`)
+
+Controls where Medeo's AI agent finds visuals. Choose one or more (space-separated):
+
+| Source | Description |
+|--------|-------------|
+| `ai_images` | AI-generated images (default if media provided) |
+| `ai_videos` | AI-generated video clips |
+| `my_uploaded_assets` | Only use the images/videos you uploaded |
+| `stock_videos` | Stock video library |
+
+When you upload reference images (`--media-ids`/`--media-urls`), pass `--asset-sources my_uploaded_assets` to ensure Medeo uses **only** your images rather than generating new ones.
 
 ### Delivery Target (`--deliver-to`)
 
@@ -84,8 +100,8 @@ python3 {baseDir}/scripts/medeo_video.py spawn-task \
 
 | Context | `--deliver-to` value | Example |
 |---------|---------------------|---------|
-| **Feishu group chat** | The group's `chat_id` (starts with `oc_`) from inbound metadata `conversation_label` or `chat_id` | `oc_158fd3e54407cbe170697c6c954bd4f2` |
-| **Feishu private chat** | The user's `open_id` (starts with `ou_`) from inbound metadata `sender_id` | `ou_f7f458f4d7b4ff49ec1b8de22a1e3206` |
+| **Feishu group chat** | The group's `chat_id` (starts with `oc_`). Extract from inbound metadata `conversation_label` or `chat_id` — **strip the `chat:` prefix** if present (e.g. `chat:oc_xxx` → `oc_xxx`) | `oc_158fd3e54407cbe170697c6c954bd4f2` |
+| **Feishu private chat** | The user's `open_id` (starts with `ou_`). Extract from inbound metadata `sender_id` — **strip the `user:` prefix** if present | `ou_f7f458f4d7b4ff49ec1b8de22a1e3206` |
 | **Telegram** | The `chat_id` from the inbound message context | `-1001234567890` |
 | **Discord** | The `channel_id` from the inbound message context | `1234567890123456` |
 
@@ -179,8 +195,11 @@ Use in generation: `--recipe-id "recipe_01..."`. See [docs/recipes.md](docs/reci
 | Command | Description |
 |---------|-------------|
 | `recipes` | List video templates |
-| `upload --url "URL"` | Upload from public URL |
-| `upload-file --file PATH` | Upload from local file or IM attachment |
+| `upload --url "URL"` | Upload from public URL (server-side fetch) |
+| `upload-file --file /tmp/photo.jpg` | Upload from local file |
+| `upload-file --url "https://..."` | Download URL → upload (for URLs that block server-side fetch) |
+| `upload-file --telegram-file-id "..." --telegram-bot-token "$TOKEN"` | Upload Telegram image attachment |
+| `upload-file --feishu-image-key "img_v3_..." --feishu-message-id "om_..."` | Upload Feishu image attachment |
 | `last-job` | Latest job status |
 | `history` | Job history |
 | `config` | Current configuration |
@@ -192,7 +211,7 @@ Use in generation: `--recipe-id "recipe_01..."`. See [docs/recipes.md](docs/reci
 3. **Insufficient credits** — share recharge link from error output
 4. **IM image upload** — Only upload images when the user explicitly asks for video generation with that image. Do NOT auto-upload every image message (user may have other skills installed). When triggered: run `upload-file` first → get `media_id` → pass to generation via `--media-ids`. Never ask the user for a URL if they already sent the image.
 5. **IM-native delivery** — After generation, deliver the video using the IM channel's native method (not just a URL). Each channel has a dedicated delivery script:
-   - **Feishu**: `python3 {baseDir}/scripts/feishu_send_video.py --video /tmp/result.mp4 --to "oc_xxx_or_ou_xxx" --cover-url "<thumbnail_url>" --duration <ms>` (use `oc_` chat_id for group chats, `ou_` open_id for private chats)
+   - **Feishu**: `python3 {baseDir}/scripts/feishu_send_video.py --video /tmp/result.mp4 --to "oc_xxx_or_ou_xxx" --cover-url "<thumbnail_url>" --duration <ms>` (use `oc_` chat_id for group chats, `ou_` open_id for private chats; `chat:oc_xxx` and `user:ou_xxx` prefixed forms are also accepted)
    - **Telegram**: `TELEGRAM_BOT_TOKEN=$TELEGRAM_BOT_TOKEN python3 {baseDir}/scripts/telegram_send_video.py --video /tmp/result.mp4 --to "<chat_id>" --cover-url "<thumbnail_url>" --duration <seconds> --caption "🎬 Video ready!"`
    - **Discord**: `python3 {baseDir}/scripts/discord_send_video.py --video /tmp/result.mp4 --channel-id "<channel_id>" --caption "🎬 Video ready!"` (25 MB limit; for larger files, share video_url as link)
    - **WhatsApp / Signal / Other**: Use the `message` tool with `media` parameter, or share `video_url` as a link if native sending is unavailable.
@@ -216,7 +235,7 @@ Use in generation: `--recipe-id "recipe_01..."`. See [docs/recipes.md](docs/reci
 ## 8. Reference Docs
 
 - [docs/recipes.md](docs/recipes.md) — Full recipe browsing and pagination
-- [docs/assets-upload.md](docs/assets-upload.md) — All supported formats, upload workflows
+- [docs/assets-upload.md](docs/assets-upload.md) — All upload paths (URL, local file, IM attachments), platform-specific guides, `upload` vs `upload-file` comparison
 - [docs/feishu-send.md](docs/feishu-send.md) — Sending generated video via Feishu (cover image, duration, compression)
 - [docs/multi-platform.md](docs/multi-platform.md) — Multi-platform video delivery (Feishu, Telegram, Discord, WhatsApp)
 
