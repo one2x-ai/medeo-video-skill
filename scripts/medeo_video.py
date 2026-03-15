@@ -103,6 +103,20 @@ class MedeoApiError(Exception):
         self.status_code = status_code
         self.details = details
 
+    def is_retryable(self) -> bool:
+        """Return True if this error is a transient server-side failure."""
+        # gRPC INTERNAL (code 13) or HTTP 5xx
+        if self.status_code >= 500:
+            return True
+        try:
+            if int(self.code) == 13:
+                return True
+        except (ValueError, TypeError):
+            pass
+        if self.case in ("internal_error", "service_unavailable", "upstream_error"):
+            return True
+        return False
+
     def to_dict(self) -> dict:
         d = {"error": str(self), "code": self.code, "case": self.case}
         if self.status_code:
@@ -299,6 +313,16 @@ def _parse_error_response(resp: requests.Response) -> MedeoApiError:
             message=f"HTTP {resp.status_code}: {resp.text[:500]}",
             status_code=resp.status_code,
         )
+
+
+def _user_friendly_error(stage: str = "") -> dict:
+    """Return a sanitized, user-facing error payload for retryable failures."""
+    prefix = f"{stage} failed: " if stage else ""
+    return {
+        "error": "service_unavailable",
+        "message": f"{prefix}The video generation service is temporarily unavailable. Please try again in a few minutes.",
+        "retryable": True,
+    }
 
 
 def _api_get(base_url: str, path: str, api_key: str,
@@ -1732,25 +1756,40 @@ def main():
     try:
         handler(args, config)
     except MedeoApiError as e:
-        print(json.dumps(e.to_dict(), indent=2, ensure_ascii=False),
-              file=sys.stderr)
+        if e.is_retryable():
+            _log(f"[retryable] {e.to_dict()}")  # full detail to stderr debug log
+            print(json.dumps(_user_friendly_error(), indent=2, ensure_ascii=False),
+                  file=sys.stderr)
+        else:
+            print(json.dumps(e.to_dict(), indent=2, ensure_ascii=False),
+                  file=sys.stderr)
         sys.exit(1)
     except MedeoPollTimeout as e:
         print(json.dumps({
-            "error": str(e),
-            "stage": e.stage,
-            "attempts": e.attempts,
-            "elapsed_seconds": round(e.elapsed, 1),
-            "last_status": e.last_status,
+            "error": "poll_timeout",
+            "message": f"{e.stage} timed out after {round(e.elapsed)}s. The service may be under heavy load — please retry.",
+            "retryable": True,
         }, indent=2), file=sys.stderr)
         sys.exit(1)
     except MedeoPollFailed as e:
-        print(json.dumps({
-            "error": str(e),
-            "stage": e.stage,
-            "status": e.status,
-            "detail": e.error_detail,
-        }, indent=2), file=sys.stderr)
+        # Check if the failure detail looks like a retryable server error
+        detail_str = json.dumps(e.error_detail) if e.error_detail else ""
+        is_retryable = (
+            "INTERNAL" in detail_str.upper()
+            or "embedding" in detail_str.lower()
+            or "5" == str(e.status)[:1]
+        )
+        if is_retryable:
+            _log(f"[retryable poll failure] stage={e.stage} status={e.status} detail={e.error_detail}")
+            print(json.dumps(_user_friendly_error(e.stage), indent=2, ensure_ascii=False),
+                  file=sys.stderr)
+        else:
+            print(json.dumps({
+                "error": str(e),
+                "stage": e.stage,
+                "status": e.status,
+                "detail": e.error_detail,
+            }, indent=2), file=sys.stderr)
         sys.exit(1)
     except KeyboardInterrupt:
         _log("Interrupted by user")
