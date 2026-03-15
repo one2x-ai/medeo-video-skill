@@ -105,15 +105,19 @@ class MedeoApiError(Exception):
 
     def is_retryable(self) -> bool:
         """Return True if this error is a transient server-side failure."""
-        # gRPC INTERNAL (code 13) or HTTP 5xx
+        # status_code default is 0 (no HTTP context); 0 < 500 so this won't trigger
         if self.status_code >= 500:
             return True
         try:
-            if int(self.code) == 13:
+            if int(self.code) == 13:  # gRPC INTERNAL
                 return True
         except (ValueError, TypeError):
             pass
-        if self.case in ("internal_error", "service_unavailable", "upstream_error"):
+        # network_error: RequestException (timeout, DNS, connection reset)
+        _RETRYABLE_CASES = frozenset({
+            "internal_error", "service_unavailable", "upstream_error", "network_error",
+        })
+        if self.case in _RETRYABLE_CASES:
             return True
         return False
 
@@ -323,6 +327,22 @@ def _user_friendly_error(stage: str = "") -> dict:
         "message": f"{prefix}The video generation service is temporarily unavailable. Please try again in a few minutes.",
         "retryable": True,
     }
+
+
+def _is_poll_failure_retryable(e: "MedeoPollFailed") -> bool:
+    """Determine if a MedeoPollFailed is caused by a transient server error."""
+    detail_str = (json.dumps(e.error_detail) if e.error_detail else "").upper()
+    # gRPC INTERNAL (code 13) — the known embedding service failure
+    if '"CODE": 13' in detail_str or '"CODE":"13"' in detail_str:
+        return True
+    # Explicit embedding service error message
+    if "FAILED TO GENERATE EMBEDDING" in detail_str:
+        return True
+    # Generic server-side markers in the detail payload
+    if any(kw in detail_str for kw in ("INTERNAL_ERROR", "INTERNAL ERROR",
+                                        "SERVICE_UNAVAILABLE", "UPSTREAM_ERROR")):
+        return True
+    return False
 
 
 def _api_get(base_url: str, path: str, api_key: str,
@@ -633,9 +653,18 @@ def poll_video_creation(config: dict, chat_session_id: str) -> dict:
     start = time.time()
     last_status = ""
 
+    completed_without_op_id = 0
+
     for attempt in range(1, COMPOSE_MAX_ATTEMPTS + 1):
         time.sleep(interval)
-        result = api_get_last_task_status(config, chat_session_id)
+        try:
+            result = api_get_last_task_status(config, chat_session_id)
+        except MedeoApiError as e:
+            if e.is_retryable():
+                _log(f"Compose: transient error on attempt {attempt}: {e}, retrying...")
+                interval = min(interval * POLL_BACKOFF_FACTOR, POLL_MAX_INTERVAL)
+                continue
+            raise
         status = result.get("status", "")
         last_status = status
         elapsed = time.time() - start
@@ -648,6 +677,12 @@ def poll_video_creation(config: dict, chat_session_id: str) -> dict:
             op_id = result.get("video_draft_op_record_id", "")
             if op_id:
                 return result
+            completed_without_op_id += 1
+            if completed_without_op_id > 5:
+                raise MedeoApiError(
+                    "Compose completed but video_draft_op_record_id missing after 5 checks",
+                    case="invalid_response",
+                )
             _log("Compose: completed but no video_draft_op_record_id, "
                  "continuing...")
 
@@ -671,9 +706,18 @@ def poll_render_job(config: dict,
     start = time.time()
     last_status = ""
 
+    completed_without_url = 0
+
     for attempt in range(1, RENDER_MAX_ATTEMPTS + 1):
         time.sleep(interval)
-        result = api_query_render_job(config, video_draft_op_record_id)
+        try:
+            result = api_query_render_job(config, video_draft_op_record_id)
+        except MedeoApiError as e:
+            if e.is_retryable():
+                _log(f"Render: transient error on attempt {attempt}: {e}, retrying...")
+                interval = min(interval * POLL_BACKOFF_FACTOR, POLL_MAX_INTERVAL)
+                continue
+            raise
         status = result.get("status", "")
         last_status = status
         elapsed = time.time() - start
@@ -686,6 +730,12 @@ def poll_render_job(config: dict,
             res = result.get("result", {})
             if res and res.get("url"):
                 return result
+            completed_without_url += 1
+            if completed_without_url > 5:
+                raise MedeoApiError(
+                    "Render completed but video URL missing after 5 checks",
+                    case="invalid_response",
+                )
             _log("Render: completed but no URL yet, continuing...")
 
         if status in ("failed", "stopped"):
@@ -806,7 +856,7 @@ def build_spawn_task(message, media_urls=None, media_ids=None,
             cmd_parts.append(json.dumps(u))
     if media_ids:
         cmd_parts.append("--media-ids")
-        cmd_parts.extend(media_ids)
+        cmd_parts.extend(json.dumps(mid) for mid in media_ids)
     if recipe_id:
         cmd_parts.extend(["--recipe-id", recipe_id])
     if duration_ms is not None:
@@ -819,7 +869,7 @@ def build_spawn_task(message, media_urls=None, media_ids=None,
         cmd_parts.extend(["--video-style-id", video_style_id])
     if asset_sources:
         cmd_parts.append("--asset-sources")
-        cmd_parts.extend(asset_sources)
+        cmd_parts.extend(json.dumps(s) for s in asset_sources)
     if no_render:
         cmd_parts.append("--no-render")
 
@@ -977,6 +1027,13 @@ def cmd_recipes(args, config: dict):
 def cmd_upload(args, config: dict):
     """Upload media from URL."""
     _check_api_key(config)
+
+    if not any(args.url.startswith(s) for s in ALLOWED_URL_SCHEMES):
+        print(json.dumps({
+            "error": "Invalid URL scheme. Only http:// and https:// are allowed.",
+            "hint": "Provide a public HTTP(S) URL to the image or video.",
+        }), file=sys.stderr)
+        sys.exit(1)
 
     _log(f"Uploading media from: {args.url}")
     job = api_create_media_from_url(config, args.url, args.project_id)
@@ -1137,12 +1194,23 @@ def cmd_upload_file(args, config: dict):
             }), file=sys.stderr)
             sys.exit(1)
         _log(f"Downloading from URL: {args.url}")
-        r = requests.get(args.url, timeout=(CONNECT_TIMEOUT, 60))
+        r = requests.get(args.url, stream=True, timeout=(CONNECT_TIMEOUT, 60))
         if r.status_code != 200:
             print(json.dumps({"error": f"Failed to download URL: HTTP {r.status_code}"}),
                   file=sys.stderr)
             sys.exit(1)
-        file_bytes = r.content
+        chunks = []
+        total = 0
+        for chunk in r.iter_content(chunk_size=65536):
+            total += len(chunk)
+            if total > MAX_UPLOAD_SIZE:
+                print(json.dumps({
+                    "error": f"Downloaded file too large (max {MAX_UPLOAD_SIZE // 1024 // 1024} MB)",
+                    "hint": "Try a smaller image or video.",
+                }), file=sys.stderr)
+                sys.exit(1)
+            chunks.append(chunk)
+        file_bytes = b"".join(chunks)
         if len(file_bytes) > MAX_UPLOAD_SIZE:
             print(json.dumps({
                 "error": f"Downloaded file too large: {len(file_bytes) / 1024 / 1024:.1f} MB (max {MAX_UPLOAD_SIZE // 1024 // 1024} MB)",
@@ -1772,14 +1840,7 @@ def main():
         }, indent=2), file=sys.stderr)
         sys.exit(1)
     except MedeoPollFailed as e:
-        # Check if the failure detail looks like a retryable server error
-        detail_str = json.dumps(e.error_detail) if e.error_detail else ""
-        is_retryable = (
-            "INTERNAL" in detail_str.upper()
-            or "embedding" in detail_str.lower()
-            or "5" == str(e.status)[:1]
-        )
-        if is_retryable:
+        if _is_poll_failure_retryable(e):
             _log(f"[retryable poll failure] stage={e.stage} status={e.status} detail={e.error_detail}")
             print(json.dumps(_user_friendly_error(e.stage), indent=2, ensure_ascii=False),
                   file=sys.stderr)
