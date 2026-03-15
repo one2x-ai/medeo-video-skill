@@ -81,6 +81,7 @@ def upload_video(token, video_path, duration_ms=None):
             headers={"Authorization": f"Bearer {token}"},
             data=data,
             files={"file": (os.path.basename(video_path), f, "video/mp4")},
+            timeout=(15, 120),
         )
     resp.raise_for_status()
     result = resp.json()
@@ -107,6 +108,7 @@ def upload_cover(token, cover_source):
         headers={"Authorization": f"Bearer {token}"},
         data={"image_type": "message"},
         files={"image": (filename, img_data, "image/jpeg")},
+        timeout=(15, 60),
     )
     resp.raise_for_status()
     result = resp.json()
@@ -141,6 +143,7 @@ def send_media_message(token, to, file_key, image_key=None):
             "msg_type": "media",
             "content": json.dumps(content),
         },
+        timeout=(15, 30),
     )
     resp.raise_for_status()
     result = resp.json()

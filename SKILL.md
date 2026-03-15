@@ -172,9 +172,9 @@ python3 {baseDir}/scripts/medeo_video.py upload-file \
   --url "https://cdn.discordapp.com/attachments/..."
 
 # From Telegram (file_id from message.photo[-1].file_id)
-python3 {baseDir}/scripts/medeo_video.py upload-file \
-  --telegram-file-id "AgACAgIAAxk..." \
-  --telegram-bot-token "$TELEGRAM_BOT_TOKEN"
+# TELEGRAM_BOT_TOKEN must be set as env var — never pass as CLI arg (ps aux leaks it)
+TELEGRAM_BOT_TOKEN="$TELEGRAM_BOT_TOKEN" python3 {baseDir}/scripts/medeo_video.py upload-file \
+  --telegram-file-id "AgACAgIAAxk..."
 
 # From Feishu (message_id + image_key from message content)
 python3 {baseDir}/scripts/medeo_video.py upload-file \
@@ -284,7 +284,16 @@ Use in generation: `--recipe-id "recipe_01..."`. See [docs/recipes.md](docs/reci
 4. **IM image upload** — Only upload images when the user explicitly asks for video generation with that image. Do NOT auto-upload every image message (user may have other skills installed). When triggered: run `upload-file` first → get `media_id` → pass to generation via `--media-ids`. Never ask the user for a URL if they already sent the image.
 5. **IM-native delivery** — After generation, deliver the video using the IM channel's native method (not just a URL). Each channel has a dedicated delivery script:
    - **Feishu**: `python3 {baseDir}/scripts/feishu_send_video.py --video /tmp/result.mp4 --to "oc_xxx_or_ou_xxx" --cover-url "<thumbnail_url>" --duration <ms>` (use `oc_` chat_id for group chats, `ou_` open_id for private chats; `chat:oc_xxx` and `user:ou_xxx` prefixed forms are also accepted)
-   - **Telegram**: `TELEGRAM_BOT_TOKEN=$TELEGRAM_BOT_TOKEN python3 {baseDir}/scripts/telegram_send_video.py --video /tmp/result.mp4 --to "<chat_id>" --cover-url "<thumbnail_url>" --duration <seconds> --caption "🎬 Video ready!"`
+   - **Telegram**: Download video, then send via `telegram_send_video.py` (token from env only):
+     ```bash
+     curl -sL -o /tmp/medeo_result.mp4 "<video_url>"
+     TELEGRAM_BOT_TOKEN="$TELEGRAM_BOT_TOKEN" python3 {baseDir}/scripts/telegram_send_video.py \
+       --video /tmp/medeo_result.mp4 \
+       --to "<chat_id>" \
+       --cover-url "<thumbnail_url>" \
+       --duration <seconds> \
+       --caption "🎬 Video ready!"
+     ```
    - **Discord**: Use the `message` tool directly — download the video to `/tmp/result.mp4` via `curl -sL -o /tmp/result.mp4 "<video_url>"`, then call `message(action="send", channel="discord", target="<channel_id>", message="🎬 Video ready!", filePath="/tmp/result.mp4")`. For files >25 MB, send `video_url` as a plain link instead.
    - **WhatsApp / Signal / Other**: Use the `message` tool with `media` parameter, or share `video_url` as a link if native sending is unavailable.
    - **Cover image URL**: The generate output JSON includes `thumbnail_url` — the API always returns this field. Constructed as `{ossBaseUrl}/{thumbnail_relative_path}` (e.g. `https://oss.prd.medeo.app/assets/medias/media_xxx.png`).
