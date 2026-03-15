@@ -1152,7 +1152,7 @@ def cmd_upload_file(args, config: dict):
     Supports:
     - Local file:      --file /tmp/photo.jpg
     - Direct URL:      --url https://cdn.example.com/photo.jpg  (downloaded first)
-    - Telegram:        --telegram-file-id <file_id> --telegram-bot-token <token>
+    - Telegram:        --telegram-file-id <file_id>  (requires TELEGRAM_BOT_TOKEN env var)
     - Feishu:          --feishu-message-id <msg_id> --feishu-image-key <key>
     """
     _check_api_key(config)
@@ -1230,11 +1230,14 @@ def cmd_upload_file(args, config: dict):
 
     # --- Source: Telegram file ---
     elif args.telegram_file_id:
-        if not args.telegram_bot_token:
-            print(json.dumps({"error": "--telegram-bot-token required for Telegram upload"}),
-                  file=sys.stderr)
+        token = os.environ.get("TELEGRAM_BOT_TOKEN", "").strip()
+        if not token:
+            print(json.dumps({
+                "error": "TELEGRAM_BOT_TOKEN environment variable is not set",
+                "hint": "Export TELEGRAM_BOT_TOKEN before running this script. "
+                        "Never pass bot tokens as CLI arguments (visible in ps aux).",
+            }), file=sys.stderr)
             sys.exit(1)
-        token = args.telegram_bot_token
         _log(f"Fetching Telegram file info: {args.telegram_file_id}")
         r = requests.get(
             f"https://api.telegram.org/bot{token}/getFile",
@@ -1681,12 +1684,9 @@ def build_parser() -> argparse.ArgumentParser:
     src_group.add_argument("--url", metavar="URL",
                            help="Direct image/video URL (downloaded first)")
     src_group.add_argument("--telegram-file-id", metavar="FILE_ID",
-                           help="Telegram file_id (requires --telegram-bot-token)")
+                           help="Telegram file_id (requires TELEGRAM_BOT_TOKEN env var)")
     src_group.add_argument("--feishu-image-key", metavar="IMAGE_KEY",
                            help="Feishu image_key (requires --feishu-message-id)")
-    p_uf.add_argument("--telegram-bot-token", metavar="TOKEN",
-                      default=os.environ.get("TELEGRAM_BOT_TOKEN", ""),
-                      help="Telegram Bot token (or set TELEGRAM_BOT_TOKEN env)")
     p_uf.add_argument("--feishu-message-id", metavar="MSG_ID",
                       help="Feishu message_id (required with --feishu-image-key)")
     p_uf.add_argument("--feishu-app-token", metavar="TOKEN",
