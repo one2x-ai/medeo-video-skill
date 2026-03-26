@@ -222,19 +222,7 @@ def _load_config_from_file(env: Optional[str] = None) -> dict:
 
 
 def _load_api_key_from_sys_env() -> str:
-    """Last resort: read MEDEO_API_KEY from /etc/openclaw-claude.env."""
-    env_file = Path("/etc/openclaw-claude.env")
-    if env_file.exists():
-        try:
-            with open(env_file, "r") as f:
-                for line in f:
-                    line = line.strip()
-                    if line.startswith("MEDEO_API_KEY="):
-                        key = line.split("=", 1)[1].strip().strip("'\"")
-                        if key:
-                            return key
-        except IOError:
-            pass
+    """Legacy fallback removed. API key resolution uses env var + config.json only."""
     return ""
 
 
@@ -243,10 +231,9 @@ def _get_config(env: Optional[str] = None) -> dict:
     Get full resolved config.
 
     Resolution priority:
-      1. Environment variable MEDEO_API_KEY (set via raw-config.json env section)
+      1. Environment variable MEDEO_API_KEY (set via openclaw env injection or shell)
       2. Skill-local config file (~/.openclaw/workspace/medeo-video/config.json)
-      3. System env file (/etc/openclaw-claude.env)
-      4. Built-in defaults (base URLs)
+      3. Built-in defaults (base URLs)
     """
     target = env or DEFAULT_ENV
     defaults = ENV_DEFAULTS.get(target, ENV_DEFAULTS["prd"])
@@ -260,10 +247,6 @@ def _get_config(env: Optional[str] = None) -> dict:
     if not api_key:
         file_cfg = _load_config_from_file(target)
         api_key = file_cfg.get("apiKey", "")
-
-    # 3) Last resort: /etc/openclaw-claude.env
-    if not api_key:
-        api_key = _load_api_key_from_sys_env()
 
     return {
         "env": target,
