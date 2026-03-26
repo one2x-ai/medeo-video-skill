@@ -323,3 +323,10 @@ Use in generation: `--recipe-id "recipe_01..."`. See [docs/recipes.md](docs/reci
 ## 10. Data Storage
 
 All data in `~/.openclaw/workspace/medeo-video/`: `config.json` (API key), `last_job.json` (latest job), `history/` (last 50 jobs).
+
+## 11. Security Notes
+
+- **API key resolution**: env var `MEDEO_API_KEY` → `config.json` → built-in defaults. No legacy system-level files are read.
+- **Feishu delivery**: `feishu_send_video.py` reads `appId` + `appSecret` from local `~/.openclaw/openclaw.json` to call Feishu Open API. Credentials stay local and are never transmitted beyond the Feishu API.
+- **Telegram delivery**: Bot token is read from `TELEGRAM_BOT_TOKEN` env var only (never CLI args).
+- **No secrets in skill directory**: `config.json` lives in the runtime data directory (`~/.openclaw/workspace/medeo-video/`), not in the skill source directory.

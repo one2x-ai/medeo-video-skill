@@ -115,6 +115,10 @@ All platforms supported by OpenClaw: Feishu, Telegram, Discord, WhatsApp, Signal
 - **Data Storage**: `~/.openclaw/workspace/medeo-video/` (config + job history)
 - **API Docs**: https://docs.prd.medeo.app/
 
+### Feishu Video Delivery
+
+The optional `feishu_send_video.py` script reads Feishu app credentials (`appId` + `appSecret`) from your local `~/.openclaw/openclaw.json` to obtain a `tenant_access_token` for sending videos. **No credentials are uploaded or transmitted to third parties** — they are only used locally to call the Feishu Open API. If you don't use Feishu, this script is not invoked.
+
 ---
 
 ## Links
