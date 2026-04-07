@@ -77,6 +77,27 @@ The agent handles everything else silently.
 > "🎬 Starting video generation — I'll send you the result in about 5–10 minutes."
 > Do NOT wait in silence. The user should know their request was received.
 
+### Billing Metadata
+
+On successful `generate` runs, the script performs a best-effort Medeo ledger
+lookup using the returned `project_id` and includes:
+
+- `usage_stats`: raw Medeo project usage payload
+- `settlement`: normalized OpenMarlin settlement payload in `usd`
+
+If the ledger lookup fails, the video job still succeeds. The script logs the
+failure to stderr and returns `billing_fetch_error` in the JSON output.
+
+### Transfer Behavior
+
+If `OPENMARLIN_SERVER_URL` is configured, successful renders also attempt a
+best-effort transfer into OpenMarlin object storage via
+`POST /v1/uploads/presign`.
+
+- `video_url` / `thumbnail_url` switch to the transferred public URLs when transfer succeeds
+- `upstream_video_url` / `upstream_thumbnail_url` preserve the original Medeo URLs
+- `transfer.*_error` is returned when transfer fails, and the script falls back to the original Medeo URLs
+
 ### Usage 1: Text only
 
 ```bash
