@@ -19,6 +19,7 @@ import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
+from urllib.parse import urlparse
 
 
 try:
@@ -42,6 +43,9 @@ HISTORY_DIR = STATE_DIR / "history"
 
 # Defaults
 DEFAULT_ENV = os.environ.get("MEDEO_ENV", "prd")
+DEFAULT_OPENMARLIN_SERVER_URL = os.environ.get(
+    "OPENMARLIN_SERVER_URL", "https://api.openmarlin.ai"
+).strip()
 
 ENV_DEFAULTS = {
     "prd": {
@@ -185,10 +189,12 @@ def _load_config_from_env(env: Optional[str] = None) -> dict:
     Base URLs are derived automatically.
     """
     api_key = os.environ.get("MEDEO_API_KEY", "")
+    openmarlin_server_url = os.environ.get("OPENMARLIN_SERVER_URL", "").strip()
 
     return {
         "env": env or DEFAULT_ENV,
         "apiKey": api_key,
+        "openmarlinServerUrl": openmarlin_server_url,
     }
 
 
@@ -253,6 +259,7 @@ def _get_config(env: Optional[str] = None) -> dict:
         "apiKey": api_key,
         "baseUrl": file_cfg.get("baseUrl", defaults["baseUrl"]),
         "ossBaseUrl": file_cfg.get("ossBaseUrl", defaults["ossBaseUrl"]),
+        "openmarlinServerUrl": env_cfg.get("openmarlinServerUrl", DEFAULT_OPENMARLIN_SERVER_URL),
     }
 
 
@@ -429,6 +436,25 @@ def _api_post(base_url: str, path: str, api_key: str,
     raise last_err or MedeoApiError("Unknown error after retries")
 
 
+def _api_post_json(base_url: str, path: str, body: dict,
+                   headers: Optional[dict] = None) -> dict:
+    """POST JSON request to a non-Medeo endpoint."""
+    url = f"{base_url.rstrip('/')}{path}"
+    merged_headers = {
+        "Content-Type": "application/json",
+        "Accept": "application/json",
+        **(headers or {}),
+    }
+    resp = requests.post(
+        url,
+        headers=merged_headers,
+        json=body,
+        timeout=(CONNECT_TIMEOUT, READ_TIMEOUT),
+    )
+    resp.raise_for_status()
+    return resp.json()
+
+
 # ---------------------------------------------------------------------------
 # Progress Reporting (stderr)
 # ---------------------------------------------------------------------------
@@ -436,6 +462,12 @@ def _api_post(base_url: str, path: str, api_key: str,
 def _log(msg: str):
     """Print progress info to stderr."""
     print(f"[medeo] {msg}", file=sys.stderr, flush=True)
+
+
+def _guess_filename_from_url(url: str, fallback: str) -> str:
+    parsed = urlparse(url)
+    filename = Path(parsed.path).name.strip()
+    return filename or fallback
 
 
 # ---------------------------------------------------------------------------
@@ -578,6 +610,30 @@ def api_query_render_job(config: dict,
         config["apiKey"],
         params={"video_draft_op_record_id": video_draft_op_record_id},
     )
+
+
+def api_get_project_usage_stats(config: dict, project_id: str) -> dict:
+    """Fetch aggregated usage stats for a Medeo project."""
+    return _api_get(
+        config["baseUrl"],
+        f"/oapi/v1/ledger/projects/{project_id}/usage_stats",
+        config["apiKey"],
+    )
+
+
+def api_openmarlin_create_presigned_upload(
+    server_url: str,
+    *,
+    content_type: Optional[str] = None,
+    filename: Optional[str] = None,
+) -> dict:
+    """Request a presigned upload target from OpenMarlin server."""
+    body: Dict[str, Any] = {}
+    if content_type:
+        body["content_type"] = content_type
+    if filename:
+        body["filename"] = filename
+    return _api_post_json(server_url, "/v1/uploads/presign", body)
 
 
 # ---------------------------------------------------------------------------
@@ -742,6 +798,108 @@ def resolve_video_url(config: dict, relative_url: str) -> str:
         return relative_url
     oss_base = config["ossBaseUrl"].rstrip("/")
     return f"{oss_base}/{relative_url.lstrip('/')}"
+
+
+def _normalize_credits_nano(value: Any) -> int:
+    """Parse Medeo credits_nano values, which may arrive as strings or ints."""
+    if isinstance(value, bool):
+        raise ValueError("boolean is not a valid credits_nano value")
+    if isinstance(value, int):
+        return value
+    if isinstance(value, str) and value.strip():
+        return int(value.strip())
+    raise ValueError(f"invalid credits_nano value: {value!r}")
+
+
+def build_usage_settlement(usage_stats: dict) -> dict:
+    """
+    Convert Medeo usage stats into OpenMarlin settlement shape.
+
+    Medeo reports debits in credits_nano with 1e8 precision. We convert that
+    to credits, then to USD using the fixed 0.045 USD per credit rate.
+    """
+    total_credits_nano = _normalize_credits_nano(usage_stats["total_credits_nano"])
+    credits = abs(total_credits_nano) / 1e8
+    usd_amount = round(credits * 0.045, 6)
+    project_id = str(usage_stats.get("project_id", "")).strip()
+
+    return {
+        "components": [
+            {
+                "type": "skill_external_api_cost",
+                "amount": usd_amount,
+                "unit": "usd",
+                "description": f"medeo project usage {project_id}" if project_id else "medeo project usage",
+            }
+        ],
+        "subtotal": {
+            "amount": usd_amount,
+            "unit": "usd",
+        },
+    }
+
+
+def fetch_usage_stats_with_settlement(config: dict, project_id: str) -> Tuple[Optional[dict], Optional[dict], Optional[str]]:
+    """
+    Best-effort usage stats lookup.
+
+    Returns usage_stats, settlement, billing_fetch_error. Billing lookup errors
+    are logged and surfaced in the JSON output without failing the video job.
+    """
+    try:
+        usage_stats = api_get_project_usage_stats(config, project_id)
+        settlement = build_usage_settlement(usage_stats)
+        return usage_stats, settlement, None
+    except Exception as error:
+        _log(f"Billing lookup failed for project {project_id}: {error}")
+        return None, None, str(error)
+
+
+def transfer_asset_to_openmarlin(
+    config: dict,
+    *,
+    source_url: str,
+    fallback_filename: str,
+) -> Tuple[Optional[str], Optional[str]]:
+    """
+    Best-effort transfer of a remote asset into OpenMarlin object storage.
+
+    Returns public_url, transfer_error.
+    """
+    server_url = str(config.get("openmarlinServerUrl", "")).strip().rstrip("/")
+    if not server_url:
+        return None, "openmarlin_server_url_not_configured"
+
+    try:
+        with requests.get(
+            source_url,
+            headers={"Accept": "*/*"},
+            stream=True,
+            timeout=(CONNECT_TIMEOUT, READ_TIMEOUT),
+        ) as download_response:
+            download_response.raise_for_status()
+            content_type = download_response.headers.get("content-type", "").split(";", 1)[0].strip() or None
+            filename = _guess_filename_from_url(source_url, fallback_filename)
+            presigned = api_openmarlin_create_presigned_upload(
+                server_url,
+                content_type=content_type,
+                filename=filename,
+            )
+            upload_headers = presigned.get("headers", {}) if isinstance(presigned.get("headers"), dict) else {}
+            upload_response = requests.put(
+                presigned["upload_url"],
+                headers=upload_headers,
+                data=download_response.iter_content(chunk_size=1024 * 1024),
+                timeout=(CONNECT_TIMEOUT, READ_TIMEOUT),
+            )
+            upload_response.raise_for_status()
+            public_url = str(presigned.get("public_url", "")).strip()
+            if not public_url:
+                raise ValueError("missing public_url in presign response")
+            return public_url, None
+    except Exception as error:
+        _log(f"Transfer failed for {source_url}: {error}")
+        return None, str(error)
 
 
 def upload_media_urls(config: dict, urls: List[str]) -> List[str]:
@@ -1385,6 +1543,32 @@ def cmd_generate(args, config: dict):
     }
     _log(f"Render complete! Video URL: {video_url}")
 
+    transferred_video_url = None
+    video_transfer_error = None
+    if video_url:
+        transferred_video_url, video_transfer_error = transfer_asset_to_openmarlin(
+            config,
+            source_url=video_url,
+            fallback_filename="medeo-result.mp4",
+        )
+        if transferred_video_url:
+            _log(f"Transferred video to OpenMarlin storage: {transferred_video_url}")
+
+    transferred_thumbnail_url = None
+    thumbnail_transfer_error = None
+    if thumbnail_url:
+        transferred_thumbnail_url, thumbnail_transfer_error = transfer_asset_to_openmarlin(
+            config,
+            source_url=thumbnail_url,
+            fallback_filename="medeo-thumbnail.png",
+        )
+        if transferred_thumbnail_url:
+            _log(f"Transferred thumbnail to OpenMarlin storage: {transferred_thumbnail_url}")
+
+    usage_stats, settlement, billing_fetch_error = fetch_usage_stats_with_settlement(
+        config, project_id
+    )
+
     # --- Final Output ---
     total_duration = sum(
         s.get("duration_seconds", 0) for s in stage_durations.values()
@@ -1396,12 +1580,25 @@ def cmd_generate(args, config: dict):
         "project_id": project_id,
         "video_draft_id": video_draft_id,
         "video_draft_op_record_id": video_draft_op_record_id,
-        "video_url": video_url,
-        "thumbnail_url": thumbnail_url,
+        "video_url": transferred_video_url or video_url,
+        "thumbnail_url": transferred_thumbnail_url or thumbnail_url,
+        **({"upstream_video_url": video_url} if transferred_video_url else {}),
+        **({"upstream_thumbnail_url": thumbnail_url} if transferred_thumbnail_url else {}),
         "metadata": metadata,
         "media_ids": media_ids,
         "settings": settings,
         "stages": stage_durations,
+        **({"usage_stats": usage_stats} if usage_stats else {}),
+        **({"settlement": settlement} if settlement else {}),
+        **({"billing_fetch_error": billing_fetch_error} if billing_fetch_error else {}),
+        **({
+            "transfer": {
+                **({"video_public_url": transferred_video_url} if transferred_video_url else {}),
+                **({"video_error": video_transfer_error} if video_transfer_error else {}),
+                **({"thumbnail_public_url": transferred_thumbnail_url} if transferred_thumbnail_url else {}),
+                **({"thumbnail_error": thumbnail_transfer_error} if thumbnail_transfer_error else {}),
+            }
+        } if any([transferred_video_url, video_transfer_error, transferred_thumbnail_url, thumbnail_transfer_error]) else {}),
     }
     save_job_record(output)
     print(json.dumps(output, indent=2, ensure_ascii=False))
