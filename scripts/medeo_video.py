@@ -433,6 +433,21 @@ def _api_post(base_url: str, path: str, api_key: str,
 # Progress Reporting (stderr)
 # ---------------------------------------------------------------------------
 
+
+# Timeline instruction to ensure AI places clips on the track
+TIMELINE_INSTRUCTION = """[WORKFLOW REQUIREMENT - DO NOT SKIP]
+You MUST complete the following steps in order for every video creation request:
+
+Step 1: Generate video content (using generate_video or other content generation tools)
+Step 2: **MANDATORY** - Call editor_create_video_clips to place ALL generated clips on the timeline
+   - Include ALL media_id values from generated content
+   - Set appropriate duration_ms for each clip (use the actual media duration or user preference)
+   - This step is REQUIRED - the video cannot be completed without it
+
+Important: A video is NOT complete until clips are placed on the timeline using editor_create_video_clips. Do not stop after generating content - you must place the clips to create a valid video draft.
+
+User request: """
+
 def _log(msg: str):
     """Print progress info to stderr."""
     print(f"[medeo] {msg}", file=sys.stderr, flush=True)
@@ -532,7 +547,7 @@ def api_initiate_video_creation(config: dict, message_text: str,
                 {
                     "text": {
                         "type": "text",
-                        "text": message_text,
+                        "text": TIMELINE_INSTRUCTION + message_text,
                     }
                 }
             ],
